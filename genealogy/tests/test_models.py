@@ -8,19 +8,26 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from genealogy.models import (
-    Tree,
-    Person,
-    LifeEvent,
-    Relationship,
-    TreeCollaborator,
     ChangeRequest,
-    UserProfile,
-    GenderEnum,
-    EventTypeEnum,
-    RelationshipTypeEnum,
-    CollaboratorRoleEnum,
     ChangeRequestStatusEnum,
+    CollaboratorRoleEnum,
+    EventTypeEnum,
+    ExportFormatEnum,
+    ExportStatusEnum,
+    ExportTask,
+    ExportTypeEnum,
+    GenderEnum,
+    ImportStatusEnum,
+    ImportTask,
+    LifeEvent,
+    Person,
     PersonStatusEnum,
+    PrivacySettings,
+    Relationship,
+    RelationshipTypeEnum,
+    Tree,
+    TreeCollaborator,
+    UserProfile,
     UserTierEnum,
 )
 
@@ -63,17 +70,14 @@ class TreeModelTest(TestCase):
 
     def test_tree_user_can_edit(self) -> None:
         """Тест проверки прав на редактирование."""
-        # Владелец может редактировать
         self.assertTrue(self.tree.user_can_edit(self.user))
 
-        # Другой пользователь не может
         other_user = User.objects.create_user(
             username='other',
             password='pass123'
         )
         self.assertFalse(self.tree.user_can_edit(other_user))
 
-        # Редактор может редактировать
         TreeCollaborator.objects.create(
             tree=self.tree,
             user=other_user,
@@ -83,17 +87,14 @@ class TreeModelTest(TestCase):
 
     def test_tree_user_can_view(self) -> None:
         """Тест проверки прав на просмотр."""
-        # Владелец может просматривать
         self.assertTrue(self.tree.user_can_view(self.user))
 
-        # Другой пользователь не может (дерево приватное)
         other_user = User.objects.create_user(
             username='viewer',
             password='pass123'
         )
         self.assertFalse(self.tree.user_can_view(other_user))
 
-        # Публичное дерево могут все
         self.tree.is_public = True
         self.tree.save()
         self.assertTrue(self.tree.user_can_view(other_user))
@@ -169,12 +170,10 @@ class PersonModelTest(TestCase):
 
     def test_person_age_calculation(self) -> None:
         """Тест вычисления возраста."""
-        # Живой человек
         age = self.person.age
         self.assertIsNotNone(age)
         self.assertGreater(age, 0)
 
-        # Умерший человек
         self.person.death_date = date(2020, 1, 1)
         self.person.save()
         self.assertEqual(self.person.age, 30)
@@ -226,7 +225,6 @@ class PersonModelTest(TestCase):
             tree=self.tree
         )
 
-        # Оба имеют одного отца
         Relationship.objects.create(
             from_person=father,
             to_person=self.person,
@@ -366,7 +364,6 @@ class UserProfileModelTest(TestCase):
             username='testuser',
             password='testpass123'
         )
-        # Сигнал уже создал профиль, поэтому используем get_or_create
         self.profile, _ = UserProfile.objects.get_or_create(
             user=self.user,
             defaults={'tier': UserTierEnum.FREE}
@@ -381,10 +378,8 @@ class UserProfileModelTest(TestCase):
 
     def test_can_add_person_free_tier(self) -> None:
         """Тест проверки лимита персон для Free тарифа."""
-        # Free тариф: 200 персон
         self.assertTrue(self.profile.can_add_person(self.tree))
 
-        # Добавляем 200 персон
         for i in range(200):
             Person.objects.create(
                 first_name=f'Person{i}',
@@ -392,7 +387,6 @@ class UserProfileModelTest(TestCase):
                 tree=self.tree
             )
 
-        # Теперь нельзя добавить
         self.assertFalse(self.profile.can_add_person(self.tree))
 
     def test_can_add_person_subscription_tier(self) -> None:
@@ -400,7 +394,6 @@ class UserProfileModelTest(TestCase):
         self.profile.tier = UserTierEnum.SUBSCRIPTION
         self.profile.save()
 
-        # Subscription: безлимит
         for i in range(300):
             Person.objects.create(
                 first_name=f'Person{i}',
@@ -408,7 +401,6 @@ class UserProfileModelTest(TestCase):
                 tree=self.tree
             )
 
-        # Можно добавлять бесконечно
         self.assertTrue(self.profile.can_add_person(self.tree))
 
 
@@ -440,3 +432,99 @@ class ChangeRequestModelTest(TestCase):
         self.assertEqual(request.person, self.person)
         self.assertEqual(request.status, ChangeRequestStatusEnum.PENDING)
         self.assertEqual(request.proposed_data, {'first_name': 'Петр'})
+
+
+class PrivacySettingsModelTest(TestCase):
+    """Тесты модели PrivacySettings."""
+
+    def setUp(self) -> None:
+        """Создание тестовых данных."""
+        self.user = User.objects.create_user(
+            username='testuser',
+            password='pass123'
+        )
+
+    def test_privacy_settings_created_automatically(self) -> None:
+        """Тест: настройки приватности создаются автоматически."""
+        self.assertTrue(hasattr(self.user, 'privacy_settings'))
+        self.assertIsInstance(self.user.privacy_settings, PrivacySettings)
+
+    def test_privacy_settings_defaults(self) -> None:
+        """Тест: настройки приватности имеют правильные значения по умолчанию."""
+        settings = self.user.privacy_settings
+        self.assertFalse(settings.hide_birth_date)
+        self.assertFalse(settings.hide_death_date)
+        self.assertFalse(settings.hide_birth_place)
+        self.assertFalse(settings.hide_death_place)
+        self.assertTrue(settings.hide_notes)
+        self.assertFalse(settings.hide_photos)
+        self.assertEqual(settings.full_data_min_degree, 2)
+
+
+class ExportTaskModelTest(TestCase):
+    """Тесты модели ExportTask."""
+
+    def setUp(self) -> None:
+        """Создание тестовых данных."""
+        self.user = User.objects.create_user(
+            username='testuser',
+            password='pass123'
+        )
+        self.tree = Tree.objects.create(name='Тестовое дерево')
+
+    def test_export_task_creation(self) -> None:
+        """Тест создания задачи экспорта."""
+        task = ExportTask.objects.create(
+            user=self.user,
+            tree=self.tree,
+            export_type=ExportTypeEnum.FULL,
+            export_format=ExportFormatEnum.JSON_ZIP
+        )
+        self.assertEqual(task.user, self.user)
+        self.assertEqual(task.tree, self.tree)
+        self.assertEqual(task.status, ExportStatusEnum.PENDING)
+
+    def test_export_task_str(self) -> None:
+        """Тест строкового представления."""
+        task = ExportTask.objects.create(
+            user=self.user,
+            tree=self.tree,
+            export_type=ExportTypeEnum.FULL
+        )
+        self.assertIn('Экспорт', str(task))
+
+
+class ImportTaskModelTest(TestCase):
+    """Тесты модели ImportTask."""
+
+    def setUp(self) -> None:
+        """Создание тестовых данных."""
+        self.user = User.objects.create_user(
+            username='testuser',
+            password='pass123'
+        )
+
+    def test_import_task_creation(self) -> None:
+        """Тест создания задачи импорта."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile("test.json", b"test content")
+        task = ImportTask.objects.create(
+            user=self.user,
+            import_format=ExportFormatEnum.JSON_ZIP,
+            source_file=test_file
+        )
+        self.assertEqual(task.user, self.user)
+        self.assertEqual(task.status, ImportStatusEnum.PENDING)
+
+    def test_import_task_str(self) -> None:
+        """Тест строкового представления."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile("test.json", b"test content")
+        task = ImportTask.objects.create(
+            user=self.user,
+            import_format=ExportFormatEnum.JSON_ZIP,
+            source_file=test_file
+        )
+        self.assertIn('Импорт', str(task))

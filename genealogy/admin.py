@@ -18,9 +18,16 @@ from .models import (
     ChangeRequest,
     ChangeRequestStatusEnum,
     CollaboratorRoleEnum,
+    ExportFormatEnum,
+    ExportStatusEnum,
+    ExportTask,
+    ExportTypeEnum,
+    ImportStatusEnum,
+    ImportTask,
     LifeEvent,
     Person,
     PersonStatusEnum,
+    PrivacySettings,
     Relationship,
     Tree,
     TreeCollaborator,
@@ -40,7 +47,7 @@ class LifeEventInline(admin.TabularInline):
     """
     model = LifeEvent
     fk_name = 'person'
-    extra = 0  # Не показывать пустые строки по умолчанию
+    extra = 0
     fields = (
         'event_type',
         'event_date',
@@ -65,7 +72,7 @@ class RelationshipInline(admin.TabularInline):
     Показывает только связи, где текущая персона — источник (from_person).
     """
     model = Relationship
-    fk_name = 'from_person'  # Указываем, какое поле использовать как FK
+    fk_name = 'from_person'
     extra = 0
     fields = (
         'to_person',
@@ -124,7 +131,7 @@ class TreeAdmin(admin.ModelAdmin):
         }),
         ('Синхронизация', {
             'fields': ('sync_version', 'last_synced_at'),
-            'classes': ('collapse',),  # Сворачиваемая секция
+            'classes': ('collapse',),
         }),
         ('Системная информация', {
             'fields': ('created_at', 'updated_at'),
@@ -254,7 +261,6 @@ class PersonAdmin(admin.ModelAdmin):
             )
         return '—'
 
-    # Кастомные действия (массовые операции)
     actions = ['mark_as_published', 'mark_as_sandbox']
 
     @admin.action(description='Опубликовать выбранных персон')
@@ -416,13 +422,137 @@ class UserProfileAdmin(admin.ModelAdmin):
     )
 
 
+# === АДМИНКА ДЛЯ ЭКСПОРТ/ИМПОРТ ===
+
+@admin.register(PrivacySettings)
+class PrivacySettingsAdmin(admin.ModelAdmin):
+    """Админка для модели PrivacySettings."""
+    list_display = (
+        'user',
+        'hide_birth_date',
+        'hide_notes',
+        'hide_photos',
+        'full_data_min_degree',
+    )
+    list_filter = ('hide_birth_date', 'hide_notes', 'hide_photos')
+    search_fields = ('user__username', 'user__email')
+    readonly_fields = ('created_at', 'updated_at')
+    autocomplete_fields = ('user',)
+
+    fieldsets = (
+        ('Пользователь', {
+            'fields': ('user',),
+        }),
+        ('Скрытие данных', {
+            'fields': (
+                'hide_birth_date',
+                'hide_death_date',
+                'hide_birth_place',
+                'hide_death_place',
+                'hide_notes',
+                'hide_photos',
+            ),
+        }),
+        ('Степень родства', {
+            'fields': ('full_data_min_degree',),
+        }),
+        ('Системная информация', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
+
+
+@admin.register(ExportTask)
+class ExportTaskAdmin(admin.ModelAdmin):
+    """Админка для модели ExportTask."""
+    list_display = (
+        'id',
+        'user',
+        'tree',
+        'export_type',
+        'export_format',
+        'status',
+        'person_count',
+        'created_at',
+    )
+    list_filter = ('status', 'export_type', 'export_format', 'created_at')
+    search_fields = ('user__username', 'tree__name')
+    readonly_fields = (
+        'created_at',
+        'completed_at',
+        'file_size',
+        'person_count',
+        'error_message',
+    )
+    autocomplete_fields = ('user', 'tree', 'target_person')
+    ordering = ('-created_at',)
+
+    fieldsets = (
+        ('Основная информация', {
+            'fields': ('user', 'tree', 'export_type', 'export_format'),
+        }),
+        ('Для родственника', {
+            'fields': ('target_person', 'privacy_overrides'),
+            'classes': ('collapse',),
+        }),
+        ('Статус', {
+            'fields': ('status', 'file', 'file_size', 'person_count'),
+        }),
+        ('Системная информация', {
+            'fields': ('created_at', 'completed_at', 'error_message'),
+            'classes': ('collapse',),
+        }),
+    )
+
+
+@admin.register(ImportTask)
+class ImportTaskAdmin(admin.ModelAdmin):
+    """Админка для модели ImportTask."""
+    list_display = (
+        'id',
+        'user',
+        'tree',
+        'import_format',
+        'status',
+        'person_count',
+        'created_at',
+    )
+    list_filter = ('status', 'import_format', 'created_at')
+    search_fields = ('user__username', 'tree__name')
+    readonly_fields = (
+        'created_at',
+        'completed_at',
+        'person_count',
+        'relationship_count',
+        'error_message',
+    )
+    autocomplete_fields = ('user', 'tree')
+    ordering = ('-created_at',)
+
+    fieldsets = (
+        ('Основная информация', {
+            'fields': ('user', 'tree', 'import_format', 'source_file'),
+        }),
+        ('Статус', {
+            'fields': (
+                'status',
+                'person_count',
+                'relationship_count',
+            ),
+        }),
+        ('Системная информация', {
+            'fields': ('created_at', 'completed_at', 'error_message'),
+            'classes': ('collapse',),
+        }),
+    )
+
+
 # === РЕГИСТРАЦИЯ ПРОФИЛЯ ВНУТРИ USER ADMIN ===
 
 class UserProfileInline(admin.StackedInline):
     """
     Inline-редактирование профиля внутри страницы пользователя.
-
-    Позволяет управлять тарифом и устройствами прямо из админки пользователя.
     """
     model = UserProfile
     can_delete = False
@@ -434,25 +564,8 @@ class UserProfileInline(admin.StackedInline):
 class CustomUserAdmin(BaseUserAdmin):
     """
     Кастомная админка для встроенной модели User.
-
-    Добавляет inline для UserProfile, чтобы управлять тарифами
-    прямо из страницы пользователя.
     """
     inlines = BaseUserAdmin.inlines + (UserProfileInline,)
-
-    def get_inline_instances(self, request: HttpRequest, obj: User | None = None) -> list:
-        """
-        Создаем профиль автоматически при создании нового пользователя.
-        """
-        return super().get_inline_instances(request, obj)
-
-    # def save_model(self, request: HttpRequest, obj: User, form: any, change: bool) -> None:
-    #     """
-    #     При создании нового пользователя автоматически создаем профиль.
-    #     """
-    #     super().save_model(request, obj, form, change)
-    #     if not change:  # Если это создание нового пользователя
-    #         UserProfile.objects.get_or_create(user=obj)
 
 
 # Перерегистрируем User с нашей кастомной админкой

@@ -815,3 +815,272 @@ class UserProfile(models.Model):
 
         current_count = tree.get_persons_count()
         return current_count < max_persons
+
+
+# === ЭКСПОРТ/ИМПОРТ ===
+
+class ExportTypeEnum(models.TextChoices):
+    """Типы экспорта."""
+    FULL = 'full', 'Полная выгрузка'
+    RELATIVE = 'relative', 'Для родственника'
+    PUBLIC = 'public', 'Публичная версия'
+
+
+class ExportFormatEnum(models.TextChoices):
+    """Форматы экспорта."""
+    JSON_ZIP = 'json_zip', 'JSON + ZIP'
+    GEDCOM = 'gedcom', 'GEDCOM'
+
+
+class ExportStatusEnum(models.TextChoices):
+    """Статусы задач экспорта."""
+    PENDING = 'pending', 'Ожидает'
+    PROCESSING = 'processing', 'В процессе'
+    COMPLETED = 'completed', 'Завершён'
+    FAILED = 'failed', 'Ошибка'
+
+
+class ImportStatusEnum(models.TextChoices):
+    """Статусы задач импорта."""
+    PENDING = 'pending', 'Ожидает'
+    PROCESSING = 'processing', 'В процессе'
+    COMPLETED = 'completed', 'Завершён'
+    FAILED = 'failed', 'Ошибка'
+
+
+class PrivacySettings(models.Model):
+    """
+    Настройки приватности для экспорта.
+
+    Определяют, какие данные скрывать при экспорте для других пользователей.
+    """
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='privacy_settings',
+        verbose_name='Пользователь'
+    )
+
+    # Что скрывать при экспорте
+    hide_birth_date = models.BooleanField(
+        default=False,
+        verbose_name='Скрывать дату рождения'
+    )
+    hide_death_date = models.BooleanField(
+        default=False,
+        verbose_name='Скрывать дату смерти'
+    )
+    hide_birth_place = models.BooleanField(
+        default=False,
+        verbose_name='Скрывать место рождения'
+    )
+    hide_death_place = models.BooleanField(
+        default=False,
+        verbose_name='Скрывать место смерти'
+    )
+    hide_notes = models.BooleanField(
+        default=True,
+        verbose_name='Скрывать заметки'
+    )
+    hide_photos = models.BooleanField(
+        default=False,
+        verbose_name='Скрывать фотографии'
+    )
+
+    # Минимальная степень родства для показа полных данных
+    # 1 = родители/дети, 2 = бабушки/дедушки, 3 = прабабушки и т.д.
+    full_data_min_degree = models.IntegerField(
+        default=2,
+        verbose_name='Минимальная степень родства для полных данных',
+        help_text='1 = родители/дети, 2 = бабушки/дедушки, 3 = прабабушки и т.д.'
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Дата обновления'
+    )
+
+    class Meta:
+        verbose_name = 'Настройки приватности'
+        verbose_name_plural = 'Настройки приватности'
+
+    def __str__(self) -> str:
+        """Строковое представление настроек."""
+        return f"Настройки приватности для {self.user.username}"
+
+
+class ExportTask(models.Model):
+    """
+    Задача на экспорт данных.
+
+    Отслеживает статус экспорта и хранит результат.
+    """
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='export_tasks',
+        verbose_name='Пользователь'
+    )
+    tree = models.ForeignKey(
+        Tree,
+        on_delete=models.CASCADE,
+        related_name='export_tasks',
+        verbose_name='Дерево'
+    )
+    export_type = models.CharField(
+        max_length=20,
+        choices=ExportTypeEnum.choices,
+        verbose_name='Тип экспорта'
+    )
+    export_format = models.CharField(
+        max_length=20,
+        choices=ExportFormatEnum.choices,
+        default=ExportFormatEnum.JSON_ZIP,
+        verbose_name='Формат экспорта'
+    )
+
+    # Для типа RELATIVE
+    target_person = models.ForeignKey(
+        Person,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='export_tasks',
+        verbose_name='Целевая персона'
+    )
+
+    # Настройки приватности (переопределение глобальных)
+    privacy_overrides = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='Переопределение настроек приватности'
+    )
+
+    # Статус
+    status = models.CharField(
+        max_length=20,
+        choices=ExportStatusEnum.choices,
+        default=ExportStatusEnum.PENDING,
+        verbose_name='Статус'
+    )
+
+    # Результат
+    file = models.FileField(
+        upload_to='exports/%Y/%m/%d/',
+        null=True,
+        blank=True,
+        verbose_name='Файл экспорта'
+    )
+    file_size = models.BigIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Размер файла (байт)'
+    )
+    person_count = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Количество экспортированных персон'
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Дата завершения'
+    )
+    error_message = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name='Сообщение об ошибке'
+    )
+
+    class Meta:
+        verbose_name = 'Задача экспорта'
+        verbose_name_plural = 'Задачи экспорта'
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        """Строковое представление задачи."""
+        return f"Экспорт #{self.pk} ({self.get_export_type_display()})"
+
+
+class ImportTask(models.Model):
+    """
+    Задача на импорт данных.
+
+    Отслеживает статус импорта и хранит результат.
+    """
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='import_tasks',
+        verbose_name='Пользователь'
+    )
+    tree = models.ForeignKey(
+        Tree,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='import_tasks',
+        verbose_name='Дерево'
+    )
+    import_format = models.CharField(
+        max_length=20,
+        choices=ExportFormatEnum.choices,
+        verbose_name='Формат импорта'
+    )
+    source_file = models.FileField(
+        upload_to='imports/%Y/%m/%d/',
+        verbose_name='Исходный файл'
+    )
+
+    # Статус
+    status = models.CharField(
+        max_length=20,
+        choices=ImportStatusEnum.choices,
+        default=ImportStatusEnum.PENDING,
+        verbose_name='Статус'
+    )
+
+    # Результат
+    person_count = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Количество импортированных персон'
+    )
+    relationship_count = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Количество импортированных связей'
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Дата завершения'
+    )
+    error_message = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name='Сообщение об ошибке'
+    )
+
+    class Meta:
+        verbose_name = 'Задача импорта'
+        verbose_name_plural = 'Задачи импорта'
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        """Строковое представление задачи."""
+        return f"Импорт #{self.pk} ({self.get_import_format_display()})"
