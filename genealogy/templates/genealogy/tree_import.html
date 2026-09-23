@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Импорт дерева — Исток{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    <div class="mb-8">
+        <div class="flex items-center justify-between mb-4">
+            <h1 class="text-3xl font-bold text-gray-900">Импорт дерева</h1>
+            <a href="{% url 'genealogy:tree_list' %}" class="text-gray-600 hover:text-gray-900 font-medium">← Назад к списку</a>
+        </div>
+        <p class="text-gray-600">Загрузите ранее экспортированный файл (.zip) для добавления данных.</p>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+        <form method="post" enctype="multipart/form-data" class="space-y-6">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+                <div class="p-4 bg-red-50 border border-red-200 rounded-md">
+                    {% for error in form.non_field_errors %}
+                        <p class="text-sm text-red-800">{{ error }}</p>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <div>
+                <label for="{{ form.source_file.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Файл для импорта</label>
+                {{ form.source_file }}
+                {% if form.source_file.errors %}<p class="mt-1 text-sm text-red-600">{{ form.source_file.errors.0 }}</p>{% endif %}
+                <p class="mt-1 text-xs text-gray-500">Максимальный размер файла: 50 МБ. Поддерживаются только .zip файлы.</p>
+            </div>
+
+            <div>
+                <label for="{{ form.target_tree.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Импортировать в существующее дерево (опционально)</label>
+                {{ form.target_tree }}
+                {% if form.target_tree.errors %}<p class="mt-1 text-sm text-red-600">{{ form.target_tree.errors.0 }}</p>{% endif %}
+                <p class="mt-1 text-xs text-gray-500">Если не выбрано, будет создано новое дерево. Если имя дерева уже занято, к нему будет добавлен суффикс.</p>
+            </div>
+
+            <div class="flex justify-end space-x-3 pt-6 border-t border-gray-200">
+                <a href="{% url 'genealogy:tree_list' %}" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">Отмена</a>
+                <button type="submit" class="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition font-medium">Начать импорт</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

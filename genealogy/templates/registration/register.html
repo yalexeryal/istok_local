@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Регистрация — Исток{% endblock %}
+
+{% block content %}
+<div class="min-h-[60vh] flex items-center justify-center">
+    <div class="max-w-md w-full">
+        <div class="text-center mb-8">
+            <span class="text-6xl mb-4 block" aria-hidden="true">🌳</span>
+            <h1 class="text-3xl font-bold text-gray-900">Создать аккаунт</h1>
+            <p class="mt-2 text-gray-600">Присоединяйтесь к Истоку</p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+            <form method="post" class="space-y-6">
+                {% csrf_token %}
+
+                {% if form.errors %}
+                    <div class="p-4 bg-red-50 border border-red-200 rounded-md">
+                        <p class="text-sm text-red-800 font-medium">
+                            Пожалуйста, исправьте ошибки ниже.
+                        </p>
+                        {% for field, errors in form.errors.items %}
+                            {% for error in errors %}
+                                <p class="text-xs text-red-600 mt-1">{{ error }}</p>
+                            {% endfor %}
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div>
+                    <label for="id_username" class="block text-sm font-medium text-gray-700 mb-2">
+                        Имя пользователя <span class="text-red-500">*</span>
+                    </label>
+                    <input type="text"
+                           name="username"
+                           id="id_username"
+                           required
+                           autofocus
+                           autocomplete="username"
+                           maxlength="150"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                           placeholder="Введите имя пользователя">
+                    <p class="mt-1 text-xs text-gray-500">
+                        Не более 150 символов. Только буквы, цифры и символы @/./+/-/_
+                    </p>
+                </div>
+
+                <div>
+                    <label for="id_password1" class="block text-sm font-medium text-gray-700 mb-2">
+                        Пароль <span class="text-red-500">*</span>
+                    </label>
+                    <input type="password"
+                           name="password1"
+                           id="id_password1"
+                           required
+                           autocomplete="new-password"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                           placeholder="Введите пароль">
+                    <p class="mt-1 text-xs text-gray-500">
+                        Минимум 8 символов. Не может состоять только из цифр.
+                    </p>
+                </div>
+
+                <div>
+                    <label for="id_password2" class="block text-sm font-medium text-gray-700 mb-2">
+                        Подтверждение пароля <span class="text-red-500">*</span>
+                    </label>
+                    <input type="password"
+                           name="password2"
+                           id="id_password2"
+                           required
+                           autocomplete="new-password"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                           placeholder="Повторите пароль">
+                </div>
+
+                <button type="submit"
+                        class="w-full px-4 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
+                    Зарегистрироваться
+                </button>
+            </form>
+
+            <div class="mt-6 pt-6 border-t border-gray-200 text-center">
+                <p class="text-sm text-gray-600">
+                    Уже есть аккаунт?
+                    <a href="{% url 'genealogy:login' %}" class="text-blue-600 hover:text-blue-800 font-medium">
+                        Войти
+                    </a>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

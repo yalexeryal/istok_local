@@ -7,24 +7,14 @@
 
     <title>{% block title %}Исток{% endblock %}</title>
 
-    <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌳</text></svg>">
 
-    <!-- Tailwind CSS (через CDN для простоты) -->
     <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- HTMX для динамических обновлений без перезагрузки -->
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-
-    <!-- Alpine.js для интерактивности -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
-
-    <!-- Cytoscape.js для визуализации графа дерева (используется позже) -->
     <script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
 
-    <!-- Кастомные стили -->
     <style>
-        /* Анимация для HTMX-запросов */
         .htmx-indicator {
             opacity: 0;
             transition: opacity 200ms ease-in;
@@ -35,8 +25,6 @@
         .htmx-request.htmx-indicator {
             opacity: 1;
         }
-
-        /* Плавные переходы */
         [x-cloak] { display: none !important; }
     </style>
 
@@ -45,25 +33,27 @@
 
 <body class="bg-gray-50 min-h-screen flex flex-col" x-data="{ mobileMenuOpen: false }">
 
-    <!-- Header -->
     <header class="bg-white shadow-sm border-b border-gray-200">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
 
-                <!-- Логотип и название -->
                 <div class="flex items-center">
-                    <a href="{% url 'genealogy:home' %}" class="flex items-center space-x-2">
+                    <a href="{% if user.is_authenticated %}{% url 'genealogy:tree_list' %}{% else %}{% url 'genealogy:welcome' %}{% endif %}"
+                       class="flex items-center space-x-2">
                         <span class="text-3xl" aria-hidden="true">🌳</span>
                         <span class="text-xl font-bold text-gray-900">Исток</span>
                     </a>
                 </div>
 
-                <!-- Навигация для десктопа -->
                 <nav class="hidden md:flex items-center space-x-6">
                     {% if user.is_authenticated %}
-                        <a href="{% url 'genealogy:home' %}"
+                        <a href="{% url 'genealogy:tree_list' %}"
                            class="text-gray-700 hover:text-gray-900 font-medium transition">
                             Мои деревья
+                        </a>
+                        <a href="{% url 'genealogy:tree_import' %}"
+                           class="text-gray-700 hover:text-gray-900 font-medium transition">
+                            Импорт
                         </a>
 
                         {% if user.is_staff %}
@@ -73,7 +63,6 @@
                             </a>
                         {% endif %}
 
-                        <!-- Меню пользователя -->
                         <div class="relative" x-data="{ open: false }">
                             <button @click="open = !open"
                                     @click.away="open = false"
@@ -109,10 +98,13 @@
                            class="text-gray-700 hover:text-gray-900 font-medium transition">
                             Войти
                         </a>
+                        <a href="{% url 'genealogy:register' %}"
+                           class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
+                            Регистрация
+                        </a>
                     {% endif %}
                 </nav>
 
-                <!-- Кнопка мобильного меню -->
                 <button @click="mobileMenuOpen = !mobileMenuOpen"
                         class="md:hidden p-2 rounded-md text-gray-700 hover:bg-gray-100">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -123,16 +115,19 @@
             </div>
         </div>
 
-        <!-- Мобильное меню -->
         <div x-show="mobileMenuOpen"
              x-cloak
              x-transition
              class="md:hidden border-t border-gray-200">
             <div class="px-4 py-3 space-y-2">
                 {% if user.is_authenticated %}
-                    <a href="{% url 'genealogy:home' %}"
+                    <a href="{% url 'genealogy:tree_list' %}"
                        class="block py-2 text-gray-700 hover:text-gray-900 font-medium">
                         Мои деревья
+                    </a>
+                    <a href="{% url 'genealogy:tree_import' %}"
+                       class="block py-2 text-gray-700 hover:text-gray-900 font-medium">
+                        Импорт
                     </a>
 
                     {% if user.is_staff %}
@@ -159,12 +154,15 @@
                        class="block py-2 text-gray-700 hover:text-gray-900 font-medium">
                         Войти
                     </a>
+                    <a href="{% url 'genealogy:register' %}"
+                       class="block py-2 text-blue-600 hover:text-blue-800 font-medium">
+                        Регистрация
+                    </a>
                 {% endif %}
             </div>
         </div>
     </header>
 
-    <!-- Сообщения (success, error, warning) -->
     {% if messages %}
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
             {% for message in messages %}
@@ -181,14 +179,12 @@
         </div>
     {% endif %}
 
-    <!-- Main content -->
     <main class="flex-grow">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             {% block content %}{% endblock %}
         </div>
     </main>
 
-    <!-- Footer -->
     <footer class="bg-white border-t border-gray-200 mt-auto">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div class="flex flex-col sm:flex-row justify-between items-center space-y-2 sm:space-y-0">

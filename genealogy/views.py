@@ -1,51 +1,98 @@
 """
 Views (обработчики запросов) приложения genealogy.
-
-Включает:
-- TreeListView — список деревьев пользователя
-- TreeDetailView — детальная страница дерева с визуализацией
-- tree_data_api — API для получения данных дерева в JSON
-- PersonCreateView — создание персоны
-- PersonUpdateView — редактирование персоны
-- PersonDeleteView — удаление персоны
-- PersonDetailView — карточка персоны
-- RelationshipCreateView — создание родственной связи
-- RelationshipDeleteView — удаление родственной связи
 """
 from django.contrib import messages
+from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import redirect_to_login
 from django.db.models import Count, Q
 from django.http import HttpResponseForbidden, JsonResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.views import View
 from django.views.generic import (
     CreateView,
     DeleteView,
     DetailView,
     ListView,
+    TemplateView,
     UpdateView,
 )
 
-from .forms import PersonForm, RelationshipForm
-from .models import Person, Relationship, Tree
+from .forms import (
+    ExportForm,
+    ImportForm,
+    PersonForm,
+    RelationshipForm,
+)
+from .models import (
+    ExportTask,
+    Person,
+    Relationship,
+    Tree,
+)
+from .services.export_service import ExportService
+from .services.import_service import ImportService
 
 
-# === VIEWS ДЛЯ ДЕРЕВЬЕВ ===
+# === ПУБЛИЧНЫЕ СТРАНИЦЫ ===
+
+class WelcomeView(TemplateView):
+    """
+    Публичная страница приветствия.
+
+    Доступна всем пользователям, включая анонимных.
+    Для авторизованных пользователей показывает кнопку "Перейти к деревьям".
+    """
+    template_name = 'genealogy/welcome.html'
+
+    def get(self, request, *args, **kwargs):
+        # Если пользователь уже авторизован — перенаправляем на список деревьев
+        if request.user.is_authenticated:
+            return redirect('genealogy:tree_list')
+        return super().get(request, *args, **kwargs)
+
+
+class RegisterView(CreateView):
+    """
+    Страница регистрации нового пользователя.
+
+    После успешной регистрации автоматически входит в систему
+    и перенаправляет на список деревьев.
+    """
+    form_class = UserCreationForm
+    template_name = 'registration/register.html'
+    success_url = reverse_lazy('genealogy:tree_list')
+
+    def dispatch(self, request, *args, **kwargs):
+        # Если уже авторизован — перенаправляем на список деревьев
+        if request.user.is_authenticated:
+            return redirect('genealogy:tree_list')
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        # Автоматически входим в систему после регистрации
+        login(self.request, self.object)
+        messages.success(
+            self.request,
+            f'Добро пожаловать, {self.object.username}! Ваш аккаунт успешно создан.'
+        )
+        return response
+
+
+# === СТРАНИЦЫ, ТРЕБУЮЩИЕ АВТОРИЗАЦИИ ===
 
 class TreeListView(LoginRequiredMixin, ListView):
-    """
-    Главная страница: список деревьев, доступных пользователю.
-    """
+    """Список деревьев, доступных пользователю."""
     model = Tree
     template_name = 'genealogy/tree_list.html'
     context_object_name = 'trees'
 
     def get_queryset(self):
-        """Возвращает деревья, доступные текущему пользователю."""
         user = self.request.user
-
         if user.is_superuser:
             queryset = Tree.objects.all()
         else:
@@ -59,9 +106,7 @@ class TreeListView(LoginRequiredMixin, ListView):
         ).order_by('-updated_at')
 
     def get_context_data(self, **kwargs):
-        """Добавляем дополнительную информацию в контекст."""
         context = super().get_context_data(**kwargs)
-
         user = self.request.user
         trees = context['trees']
 
@@ -77,30 +122,23 @@ class TreeListView(LoginRequiredMixin, ListView):
 
         context['tree_roles'] = tree_roles
         context['total_trees'] = trees.count()
-
         return context
 
 
 class TreeDetailView(LoginRequiredMixin, DetailView):
-    """
-    Детальная страница дерева с визуализацией графа.
-    """
+    """Детальная страница дерева с визуализацией графа."""
     model = Tree
     template_name = 'genealogy/tree_detail.html'
     context_object_name = 'tree'
 
     def get(self, request, *args, **kwargs):
-        """Переопределяем GET для проверки прав ДО рендеринга шаблона."""
         self.object = self.get_object()
-
         if not self.object.user_can_view(request.user):
             return HttpResponseForbidden("У вас нет доступа к этому дереву")
-
         context = self.get_context_data(object=self.object)
         return self.render_to_response(context)
 
     def get_context_data(self, **kwargs):
-        """Добавляем дополнительную информацию в контекст."""
         context = super().get_context_data(**kwargs)
         tree = self.object
         user = self.request.user
@@ -118,6 +156,10 @@ class TreeDetailView(LoginRequiredMixin, DetailView):
         if collaborator:
             context['user_role'] = collaborator.get_role_display()
             context['can_edit'] = tree.user_can_edit(user)
+        elif user.is_superuser:
+            # Суперпользователь имеет полный доступ ко всем деревьям
+            context['user_role'] = 'Администратор'
+            context['can_edit'] = True
         else:
             context['user_role'] = 'Гость'
             context['can_edit'] = False
@@ -127,9 +169,7 @@ class TreeDetailView(LoginRequiredMixin, DetailView):
 
 @login_required
 def tree_data_api(request, pk):
-    """
-    API endpoint для получения данных дерева в JSON формате.
-    """
+    """API endpoint для получения данных дерева в JSON формате."""
     tree = get_object_or_404(Tree, pk=pk)
 
     if not tree.user_can_view(request.user):
@@ -183,54 +223,34 @@ def tree_data_api(request, pk):
 # === VIEWS ДЛЯ ПЕРСОН (CRUD) ===
 
 class PersonCreateView(LoginRequiredMixin, CreateView):
-    """
-    Создание новой персоны в дереве.
-
-    Доступ:
-    - Только авторизованные пользователи
-    - Только OWNER и EDITOR дерева
-    """
+    """Создание новой персоны в дереве."""
     model = Person
     form_class = PersonForm
     template_name = 'genealogy/person_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        """
-        Проверяем аутентификацию и права доступа к дереву.
-
-        Важно: сначала проверяем is_authenticated, чтобы избежать
-        ошибки при использовании AnonymousUser в запросах к БД.
-        """
-        # Сначала проверяем аутентификацию (для AnonymousUser)
         if not request.user.is_authenticated:
             return redirect_to_login(request.get_full_path())
 
         self.tree = get_object_or_404(Tree, pk=self.kwargs['tree_pk'])
-
-        # Теперь request.user гарантированно User, можно проверять права
         if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden(
-                "У вас нет прав для добавления персон в это дерево"
-            )
+            return HttpResponseForbidden("У вас нет прав для добавления персон в это дерево")
 
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
-        """Передаём tree и user в форму."""
         kwargs = super().get_form_kwargs()
         kwargs['tree'] = self.tree
         kwargs['user'] = self.request.user
         return kwargs
 
     def get_context_data(self, **kwargs):
-        """Добавляем дерево в контекст."""
         context = super().get_context_data(**kwargs)
         context['tree'] = self.tree
         context['action'] = 'Создание'
         return context
 
     def form_valid(self, form):
-        """При успешном создании перенаправляем на страницу дерева."""
         response = super().form_valid(form)
         messages.success(
             self.request,
@@ -239,60 +259,39 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
         return response
 
     def get_success_url(self):
-        """Перенаправляем на страницу дерева."""
         return reverse('genealogy:tree_detail', kwargs={'pk': self.tree.pk})
 
 
 class PersonUpdateView(LoginRequiredMixin, UpdateView):
-    """
-    Редактирование существующей персоны.
-
-    Доступ:
-    - Только авторизованные пользователи
-    - Только OWNER и EDITOR дерева, к которому принадлежит персона
-    """
+    """Редактирование существующей персоны."""
     model = Person
     form_class = PersonForm
     template_name = 'genealogy/person_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        """
-        Проверяем аутентификацию и права доступа к дереву персоны.
-
-        Важно: сначала проверяем is_authenticated, чтобы избежать
-        ошибки при использовании AnonymousUser в запросах к БД.
-        """
-        # Сначала проверяем аутентификацию (для AnonymousUser)
         if not request.user.is_authenticated:
             return redirect_to_login(request.get_full_path())
 
         self.object = self.get_object()
         self.tree = self.object.tree
-
-        # Теперь request.user гарантированно User, можно проверять права
         if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden(
-                "У вас нет прав для редактирования персон в этом дереве"
-            )
+            return HttpResponseForbidden("У вас нет прав для редактирования персон в этом дереве")
 
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
-        """Передаём tree и user в форму."""
         kwargs = super().get_form_kwargs()
         kwargs['tree'] = self.tree
         kwargs['user'] = self.request.user
         return kwargs
 
     def get_context_data(self, **kwargs):
-        """Добавляем дерево в контекст."""
         context = super().get_context_data(**kwargs)
         context['tree'] = self.tree
         context['action'] = 'Редактирование'
         return context
 
     def form_valid(self, form):
-        """При успешном редактировании показываем сообщение."""
         response = super().form_valid(form)
         messages.success(
             self.request,
@@ -301,103 +300,59 @@ class PersonUpdateView(LoginRequiredMixin, UpdateView):
         return response
 
     def get_success_url(self):
-        """Перенаправляем на страницу персоны."""
         return reverse('genealogy:person_detail', kwargs={'pk': self.object.pk})
 
 
 class PersonDeleteView(LoginRequiredMixin, DeleteView):
-    """
-    Удаление персоны с подтверждением.
-
-    Доступ:
-    - Только авторизованные пользователи
-    - Только OWNER и EDITOR дерева
-    """
+    """Удаление персоны с подтверждением."""
     model = Person
     template_name = 'genealogy/person_confirm_delete.html'
 
     def dispatch(self, request, *args, **kwargs):
-        """
-        Проверяем аутентификацию и права доступа к дереву персоны.
-
-        Важно: сначала проверяем is_authenticated, чтобы избежать
-        ошибки при использовании AnonymousUser в запросах к БД.
-        """
-        # Сначала проверяем аутентификацию (для AnonymousUser)
         if not request.user.is_authenticated:
             return redirect_to_login(request.get_full_path())
 
         self.object = self.get_object()
         self.tree = self.object.tree
-
-        # Теперь request.user гарантированно User, можно проверять права
         if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden(
-                "У вас нет прав для удаления персон в этом дереве"
-            )
+            return HttpResponseForbidden("У вас нет прав для удаления персон в этом дереве")
 
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
-        """Добавляем дерево в контекст."""
         context = super().get_context_data(**kwargs)
         context['tree'] = self.tree
         return context
 
     def delete(self, request, *args, **kwargs):
-        """При удалении показываем сообщение."""
         self.object = self.get_object()
         person_name = self.object.full_name_display
         response = super().delete(request, *args, **kwargs)
-        messages.success(
-            request,
-            f'Персона "{person_name}" успешно удалена.'
-        )
+        messages.success(request, f'Персона "{person_name}" успешно удалена.')
         return response
 
     def get_success_url(self):
-        """Перенаправляем на страницу дерева."""
         return reverse('genealogy:tree_detail', kwargs={'pk': self.tree.pk})
 
 
 class PersonDetailView(LoginRequiredMixin, DetailView):
-    """
-    Карточка персоны с полной информацией.
-
-    Показывает:
-    - Основную информацию
-    - События жизни
-    - Родственные связи
-    - Родителей, детей, братьев/сестер
-    """
+    """Карточка персоны с полной информацией."""
     model = Person
     template_name = 'genealogy/person_detail.html'
     context_object_name = 'person'
 
     def get(self, request, *args, **kwargs):
-        """
-        Проверяем аутентификацию и права доступа к дереву персоны.
-
-        Важно: сначала проверяем is_authenticated, чтобы избежать
-        ошибки при использовании AnonymousUser в запросах к БД.
-        """
-        # Сначала проверяем аутентификацию (для AnonymousUser)
         if not request.user.is_authenticated:
             return redirect_to_login(request.get_full_path())
 
         self.object = self.get_object()
-
-        # Теперь request.user гарантированно User, можно проверять права
         if not self.object.tree.user_can_view(request.user):
-            return HttpResponseForbidden(
-                "У вас нет доступа к этой персоне"
-            )
+            return HttpResponseForbidden("У вас нет доступа к этой персоне")
 
         context = self.get_context_data(object=self.object)
         return self.render_to_response(context)
 
     def get_context_data(self, **kwargs):
-        """Добавляем связанную информацию в контекст."""
         context = super().get_context_data(**kwargs)
         person = self.object
         user = self.request.user
@@ -409,10 +364,11 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
         context['life_events'] = person.life_events.all().order_by('event_date')
         context['can_edit'] = person.tree.user_can_edit(user)
 
-        # Роль пользователя
         collaborator = person.tree.collaborators.filter(user=user).first()
         if collaborator:
             context['user_role'] = collaborator.get_role_display()
+        elif user.is_superuser:
+            context['user_role'] = 'Администратор'
         else:
             context['user_role'] = 'Гость'
 
@@ -422,53 +378,33 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
 # === VIEWS ДЛЯ РОДСТВЕННЫХ СВЯЗЕЙ ===
 
 class RelationshipCreateView(LoginRequiredMixin, CreateView):
-    """
-    Создание родственной связи между двумя персонами.
-
-    Доступ:
-    - Только авторизованные пользователи
-    - Только OWNER и EDITOR дерева
-    """
+    """Создание родственной связи между двумя персонами."""
     model = Relationship
     form_class = RelationshipForm
     template_name = 'genealogy/relationship_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        """
-        Проверяем аутентификацию и права доступа к дереву.
-
-        Важно: сначала проверяем is_authenticated, чтобы избежать
-        ошибки при использовании AnonymousUser в запросах к БД.
-        """
-        # Сначала проверяем аутентификацию (для AnonymousUser)
         if not request.user.is_authenticated:
             return redirect_to_login(request.get_full_path())
 
         self.tree = get_object_or_404(Tree, pk=self.kwargs['tree_pk'])
-
-        # Теперь request.user гарантированно User, можно проверять права
         if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden(
-                "У вас нет прав для добавления связей в это дерево"
-            )
+            return HttpResponseForbidden("У вас нет прав для добавления связей в это дерево")
 
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
-        """Передаём tree и user в форму."""
         kwargs = super().get_form_kwargs()
         kwargs['tree'] = self.tree
         kwargs['user'] = self.request.user
         return kwargs
 
     def get_context_data(self, **kwargs):
-        """Добавляем дерево в контекст."""
         context = super().get_context_data(**kwargs)
         context['tree'] = self.tree
         return context
 
     def form_valid(self, form):
-        """При успешном создании перенаправляем на страницу дерева."""
         response = super().form_valid(form)
         messages.success(
             self.request,
@@ -478,61 +414,136 @@ class RelationshipCreateView(LoginRequiredMixin, CreateView):
         return response
 
     def get_success_url(self):
-        """Перенаправляем на страницу дерева."""
         return reverse('genealogy:tree_detail', kwargs={'pk': self.tree.pk})
 
 
 class RelationshipDeleteView(LoginRequiredMixin, DeleteView):
-    """
-    Удаление родственной связи с подтверждением.
-
-    Доступ:
-    - Только авторизованные пользователи
-    - Только OWNER и EDITOR дерева
-    """
+    """Удаление родственной связи с подтверждением."""
     model = Relationship
     template_name = 'genealogy/relationship_confirm_delete.html'
 
     def dispatch(self, request, *args, **kwargs):
-        """
-        Проверяем аутентификацию и права доступа к дереву связи.
-
-        Важно: сначала проверяем is_authenticated, чтобы избежать
-        ошибки при использовании AnonymousUser в запросах к БД.
-        """
-        # Сначала проверяем аутентификацию (для AnonymousUser)
         if not request.user.is_authenticated:
             return redirect_to_login(request.get_full_path())
 
         self.object = self.get_object()
         self.tree = self.object.from_person.tree
-
-        # Теперь request.user гарантированно User, можно проверять права
         if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden(
-                "У вас нет прав для удаления связей в этом дереве"
-            )
+            return HttpResponseForbidden("У вас нет прав для удаления связей в этом дереве")
 
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
-        """Добавляем дерево в контекст."""
         context = super().get_context_data(**kwargs)
         context['tree'] = self.tree
         return context
 
     def delete(self, request, *args, **kwargs):
-        """При удалении показываем сообщение."""
         self.object = self.get_object()
         from_name = self.object.from_person.full_name_display
         to_name = self.object.to_person.full_name_display
         response = super().delete(request, *args, **kwargs)
-        messages.success(
-            request,
-            f'Связь между "{from_name}" и "{to_name}" успешно удалена.'
-        )
+        messages.success(request, f'Связь между "{from_name}" и "{to_name}" успешно удалена.')
         return response
 
     def get_success_url(self):
-        """Перенаправляем на страницу дерева."""
         return reverse('genealogy:tree_detail', kwargs={'pk': self.tree.pk})
+
+
+# === VIEWS ДЛЯ ЭКСПОРТА И ИМПОРТА ===
+
+class TreeExportView(LoginRequiredMixin, View):
+    """Страница настройки и запуска экспорта дерева."""
+    template_name = 'genealogy/tree_export.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+
+        self.tree = get_object_or_404(Tree, pk=self.kwargs['pk'])
+        if not self.tree.user_can_edit(request.user):
+            return HttpResponseForbidden("У вас нет прав для экспорта этого дерева")
+
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        form = ExportForm(tree=self.tree)
+        return render(request, self.template_name, {'form': form, 'tree': self.tree})
+
+    def post(self, request, *args, **kwargs):
+        form = ExportForm(request.POST, tree=self.tree)
+        if form.is_valid():
+            service = ExportService()
+            task = service.create_export_task(
+                user=request.user,
+                tree=self.tree,
+                export_type=form.cleaned_data['export_type'],
+                export_format=form.cleaned_data['export_format'],
+                target_person=form.cleaned_data.get('target_person'),
+            )
+
+            try:
+                service.execute_export(task)
+                messages.success(request, 'Экспорт успешно завершён. Файл готов к скачиванию.')
+                return redirect('genealogy:tree_export_result', pk=self.tree.pk, task_pk=task.pk)
+            except Exception as e:
+                messages.error(request, f'Ошибка при экспорте: {e}')
+                return redirect('genealogy:tree_detail', pk=self.tree.pk)
+
+        return render(request, self.template_name, {'form': form, 'tree': self.tree})
+
+
+class TreeExportResultView(LoginRequiredMixin, DetailView):
+    """Страница результата экспорта со ссылкой на скачивание."""
+    model = ExportTask
+    template_name = 'genealogy/tree_export_result.html'
+    context_object_name = 'task'
+
+    def get_queryset(self):
+        return ExportTask.objects.filter(user=self.request.user)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['tree'] = self.object.tree
+        return context
+
+
+class TreeImportView(LoginRequiredMixin, View):
+    """Страница загрузки файла и запуска импорта."""
+    template_name = 'genealogy/tree_import.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        form = ImportForm(user=request.user)
+        return render(request, self.template_name, {'form': form})
+
+    def post(self, request, *args, **kwargs):
+        form = ImportForm(request.POST, request.FILES, user=request.user)
+        if form.is_valid():
+            service = ImportService()
+            task = service.create_import_task(
+                user=request.user,
+                source_file=request.FILES['source_file'],
+                target_tree=form.cleaned_data.get('target_tree'),
+            )
+
+            try:
+                service.execute_import(task)
+                messages.success(
+                    request,
+                    f'Импорт успешно завершён. '
+                    f'Импортировано персон: {task.person_count}, '
+                    f'связей: {task.relationship_count}.'
+                )
+                if task.tree:
+                    return redirect('genealogy:tree_detail', pk=task.tree.pk)
+                return redirect('genealogy:tree_list')
+            except Exception as e:
+                messages.error(request, f'Ошибка при импорте: {e}')
+                return redirect('genealogy:tree_import')
+
+        return render(request, self.template_name, {'form': form})

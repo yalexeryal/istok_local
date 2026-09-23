@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Экспорт дерева — Исток{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    <div class="mb-8">
+        <div class="flex items-center justify-between mb-4">
+            <h1 class="text-3xl font-bold text-gray-900">Экспорт дерева</h1>
+            <a href="{% url 'genealogy:tree_detail' tree.pk %}" class="text-gray-600 hover:text-gray-900 font-medium">← Назад к дереву</a>
+        </div>
+        <p class="text-gray-600">Дерево: <strong>{{ tree.name }}</strong></p>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+        <form method="post" class="space-y-6">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+                <div class="p-4 bg-red-50 border border-red-200 rounded-md">
+                    {% for error in form.non_field_errors %}
+                        <p class="text-sm text-red-800">{{ error }}</p>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <div>
+                <label for="{{ form.export_type.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Тип экспорта</label>
+                {{ form.export_type }}
+                {% if form.export_type.errors %}<p class="mt-1 text-sm text-red-600">{{ form.export_type.errors.0 }}</p>{% endif %}
+                <p class="mt-1 text-xs text-gray-500">
+                    <strong>Полная:</strong> все персоны, связи, события и фото.<br>
+                    <strong>Для родственника:</strong> только связанные персоны с учётом приватности.<br>
+                    <strong>Публичная:</strong> урезанная версия без личных данных и фото.
+                </p>
+            </div>
+
+            <div>
+                <label for="{{ form.export_format.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Формат файла</label>
+                {{ form.export_format }}
+                {% if form.export_format.errors %}<p class="mt-1 text-sm text-red-600">{{ form.export_format.errors.0 }}</p>{% endif %}
+            </div>
+
+            <div id="target_person_field" style="display: none;">
+                <label for="{{ form.target_person.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Целевая персона</label>
+                {{ form.target_person }}
+                {% if form.target_person.errors %}<p class="mt-1 text-sm text-red-600">{{ form.target_person.errors.0 }}</p>{% endif %}
+            </div>
+
+            <div class="flex justify-end space-x-3 pt-6 border-t border-gray-200">
+                <a href="{% url 'genealogy:tree_detail' tree.pk %}" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">Отмена</a>
+                <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">Начать экспорт</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const exportType = document.getElementById('{{ form.export_type.id_for_label }}');
+        const targetField = document.getElementById('target_person_field');
+
+        function toggleTargetField() {
+            if (exportType.value === 'relative') {
+                targetField.style.display = 'block';
+            } else {
+                targetField.style.display = 'none';
+            }
+        }
+
+        exportType.addEventListener('change', toggleTargetField);
+        toggleTargetField();
+    });
+</script>
+{% endblock %}
