@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Мои деревья — Исток{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold text-gray-900">Мои деревья</h1>
+    <p class="mt-2 text-gray-600">
+        {% if total_trees == 0 %}
+        У вас пока нет деревьев. Попросите администратора создать дерево и добавить вас как соавтора.
+        {% else %}
+        Всего деревьев: {{ total_trees }}
+        {% endif %}
+    </p>
+</div>
+
+{% if trees %}
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    {% for tree in trees %}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+        <div class="p-6">
+            <!-- Заголовок карточки -->
+            <div class="flex items-start justify-between mb-4">
+                <div class="flex-1">
+                    <h2 class="text-xl font-semibold text-gray-900 mb-1">
+                        {{ tree.name }}
+                    </h2>
+                    {% if tree.is_public %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                    Публичное
+                                </span>
+                    {% else %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                    Приватное
+                                </span>
+                    {% endif %}
+                </div>
+                <span class="text-3xl" aria-hidden="true">🌳</span>
+            </div>
+
+            <!-- Описание -->
+            {% if tree.description %}
+            <p class="text-sm text-gray-600 mb-4 line-clamp-2">
+                {{ tree.description }}
+            </p>
+            {% endif %}
+
+            <!-- Статистика -->
+            <div class="grid grid-cols-2 gap-4 mb-4 py-4 border-t border-b border-gray-100">
+                <div>
+                    <div class="text-2xl font-bold text-gray-900">
+                        {{ tree.persons_count }}
+                    </div>
+                    <div class="text-xs text-gray-500 uppercase tracking-wide">
+                        Персон
+                    </div>
+                </div>
+                <div>
+                    <div class="text-sm font-medium text-gray-900">
+                        {{ tree_roles|default_if_none:"—" }}
+                    </div>
+                    <div class="text-xs text-gray-500 uppercase tracking-wide">
+                        Ваша роль
+                    </div>
+                </div>
+            </div>
+
+            <!-- Дата обновления -->
+            <div class="text-xs text-gray-500">
+                Обновлено: {{ tree.updated_at|date:"d.m.Y в H:i" }}
+            </div>
+
+            <!-- Кнопка действий -->
+            <div class="mt-4">
+                <a href="{% url 'genealogy:tree_detail' tree.pk %}"
+                   class="block w-full text-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
+                    Открыть дерево
+                </a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<!-- Пустое состояние -->
+<div class="text-center py-16 bg-white rounded-lg shadow-sm border border-gray-200">
+    <span class="text-6xl mb-4 block" aria-hidden="true">🌱</span>
+    <h3 class="text-xl font-semibold text-gray-900 mb-2">
+        Пока нет деревьев
+    </h3>
+    <p class="text-gray-600 max-w-md mx-auto">
+        Обратитесь к администратору, чтобы он создал первое дерево и добавил вас как соавтора.
+    </p>
+</div>
+{% endif %}
+{% endblock %}
