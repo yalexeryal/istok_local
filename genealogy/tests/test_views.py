@@ -5,6 +5,8 @@
 - Доступность страниц для разных пользователей
 - Корректность отображения списка деревьев
 - Проверку прав доступа
+- CRUD для персон
+- CRUD для родственных связей
 """
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -13,6 +15,7 @@ from django.urls import reverse
 from genealogy.models import (
     CollaboratorRoleEnum,
     Person,
+    Relationship,
     Tree,
     TreeCollaborator,
 )
@@ -342,3 +345,384 @@ class TreeDataAPITest(TestCase):
             reverse('genealogy:tree_data_api', args=[self.tree.pk])
         )
         self.assertEqual(response.status_code, 403)
+
+
+class PersonCRUDViewsTest(TestCase):
+    """Тесты CRUD для персон."""
+
+    def setUp(self) -> None:
+        """Создание тестовых данных."""
+        self.owner = User.objects.create_user(
+            username='owner',
+            password='pass123'
+        )
+        self.editor = User.objects.create_user(
+            username='editor',
+            password='pass123'
+        )
+        self.viewer = User.objects.create_user(
+            username='viewer',
+            password='pass123'
+        )
+        self.other_user = User.objects.create_user(
+            username='other',
+            password='pass123'
+        )
+
+        self.tree = Tree.objects.create(name='Тестовое дерево')
+
+        TreeCollaborator.objects.create(
+            tree=self.tree,
+            user=self.owner,
+            role=CollaboratorRoleEnum.OWNER
+        )
+        TreeCollaborator.objects.create(
+            tree=self.tree,
+            user=self.editor,
+            role=CollaboratorRoleEnum.EDITOR
+        )
+        TreeCollaborator.objects.create(
+            tree=self.tree,
+            user=self.viewer,
+            role=CollaboratorRoleEnum.VIEWER
+        )
+
+        self.person = Person.objects.create(
+            first_name='Иван',
+            last_name='Иванов',
+            gender='male',
+            tree=self.tree
+        )
+
+    def test_create_requires_login(self) -> None:
+        """Создание требует входа."""
+        response = self.client.get(
+            reverse('genealogy:person_create', args=[self.tree.pk])
+        )
+        # Должен быть редирект на страницу входа
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/accounts/login/', response.url)
+
+    def test_create_by_owner(self) -> None:
+        """Владелец может создавать персон."""
+        self.client.login(username='owner', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:person_create', args=[self.tree.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_create_by_editor(self) -> None:
+        """Редактор может создавать персон."""
+        self.client.login(username='editor', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:person_create', args=[self.tree.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_create_by_viewer_forbidden(self) -> None:
+        """Читатель не может создавать персон."""
+        self.client.login(username='viewer', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:person_create', args=[self.tree.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_person_success(self) -> None:
+        """Успешное создание персоны."""
+        self.client.login(username='owner', password='pass123')
+        data = {
+            'first_name': 'Мария',
+            'last_name': 'Петрова',
+            'gender': 'female',
+            'birth_date': '1995-05-15',
+        }
+        response = self.client.post(
+            reverse('genealogy:person_create', args=[self.tree.pk]),
+            data
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            Person.objects.filter(
+                first_name='Мария',
+                last_name='Петрова',
+                tree=self.tree
+            ).exists()
+        )
+
+    def test_create_person_duplicate_forbidden(self) -> None:
+        """Создание дубликата запрещено."""
+        self.client.login(username='owner', password='pass123')
+        data = {
+            'first_name': 'Иван',
+            'last_name': 'Иванов',  # Уже существует
+            'gender': 'male',
+        }
+        response = self.client.post(
+            reverse('genealogy:person_create', args=[self.tree.pk]),
+            data
+        )
+        self.assertEqual(response.status_code, 200)  # Остаёмся на форме
+        self.assertContains(response, 'уже есть персона')
+
+    def test_update_requires_login(self) -> None:
+        """Редактирование требует входа."""
+        response = self.client.get(
+            reverse('genealogy:person_update', args=[self.person.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/accounts/login/', response.url)
+
+    def test_update_by_owner(self) -> None:
+        """Владелец может редактировать персон."""
+        self.client.login(username='owner', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:person_update', args=[self.person.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_update_by_editor(self) -> None:
+        """Редактор может редактировать персон."""
+        self.client.login(username='editor', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:person_update', args=[self.person.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_update_by_viewer_forbidden(self) -> None:
+        """Читатель не может редактировать персон."""
+        self.client.login(username='viewer', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:person_update', args=[self.person.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_update_success(self) -> None:
+        """Успешное обновление персоны."""
+        self.client.login(username='owner', password='pass123')
+        data = {
+            'first_name': 'Иван',
+            'last_name': 'Иванов',
+            'gender': 'male',
+            'middle_name': 'Иванович',  # Добавляем отчество
+        }
+        response = self.client.post(
+            reverse('genealogy:person_update', args=[self.person.pk]),
+            data
+        )
+        self.assertEqual(response.status_code, 302)
+
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.middle_name, 'Иванович')
+
+    def test_delete_requires_login(self) -> None:
+        """Удаление требует входа."""
+        response = self.client.get(
+            reverse('genealogy:person_delete', args=[self.person.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/accounts/login/', response.url)
+
+    def test_delete_by_owner(self) -> None:
+        """Владелец может удалять персон."""
+        self.client.login(username='owner', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:person_delete', args=[self.person.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_delete_by_viewer_forbidden(self) -> None:
+        """Читатель не может удалять персон."""
+        self.client.login(username='viewer', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:person_delete', args=[self.person.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_success(self) -> None:
+        """Успешное удаление персоны."""
+        self.client.login(username='owner', password='pass123')
+        person_pk = self.person.pk
+
+        response = self.client.post(
+            reverse('genealogy:person_delete', args=[person_pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Person.objects.filter(pk=person_pk).exists())
+
+    def test_person_detail_requires_login(self) -> None:
+        """Карточка персоны требует входа."""
+        response = self.client.get(
+            reverse('genealogy:person_detail', args=[self.person.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/accounts/login/', response.url)
+
+    def test_person_detail_accessible(self) -> None:
+        """Карточка персоны доступна."""
+        self.client.login(username='owner', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:person_detail', args=[self.person.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Иванов Иван')
+
+    def test_person_detail_forbidden_for_other_user(self) -> None:
+        """Карточка персоны недоступна для чужого пользователя."""
+        self.client.login(username='other', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:person_detail', args=[self.person.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+
+
+class RelationshipCRUDViewsTest(TestCase):
+    """Тесты CRUD для родственных связей."""
+
+    def setUp(self) -> None:
+        """Создание тестовых данных."""
+        self.owner = User.objects.create_user(
+            username='owner',
+            password='pass123'
+        )
+        self.editor = User.objects.create_user(
+            username='editor',
+            password='pass123'
+        )
+        self.viewer = User.objects.create_user(
+            username='viewer',
+            password='pass123'
+        )
+
+        self.tree = Tree.objects.create(name='Тестовое дерево')
+
+        TreeCollaborator.objects.create(
+            tree=self.tree,
+            user=self.owner,
+            role=CollaboratorRoleEnum.OWNER
+        )
+        TreeCollaborator.objects.create(
+            tree=self.tree,
+            user=self.editor,
+            role=CollaboratorRoleEnum.EDITOR
+        )
+        TreeCollaborator.objects.create(
+            tree=self.tree,
+            user=self.viewer,
+            role=CollaboratorRoleEnum.VIEWER
+        )
+
+        self.father = Person.objects.create(
+            first_name='Пётр',
+            last_name='Иванов',
+            gender='male',
+            tree=self.tree
+        )
+        self.son = Person.objects.create(
+            first_name='Иван',
+            last_name='Иванов',
+            gender='male',
+            tree=self.tree
+        )
+
+        self.relationship = Relationship.objects.create(
+            from_person=self.father,
+            to_person=self.son,
+            relationship_type='biological_parent'
+        )
+
+    def test_create_requires_login(self) -> None:
+        """Создание связи требует входа."""
+        response = self.client.get(
+            reverse('genealogy:relationship_create', args=[self.tree.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/accounts/login/', response.url)
+
+    def test_create_by_owner(self) -> None:
+        """Владелец может создавать связи."""
+        self.client.login(username='owner', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:relationship_create', args=[self.tree.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_create_by_editor(self) -> None:
+        """Редактор может создавать связи."""
+        self.client.login(username='editor', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:relationship_create', args=[self.tree.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_create_by_viewer_forbidden(self) -> None:
+        """Читатель не может создавать связи."""
+        self.client.login(username='viewer', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:relationship_create', args=[self.tree.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_relationship_success(self) -> None:
+        """Успешное создание связи."""
+        self.client.login(username='owner', password='pass123')
+
+        # Создаём ещё одну персону для связи
+        mother = Person.objects.create(
+            first_name='Мария',
+            last_name='Иванова',
+            gender='female',
+            tree=self.tree
+        )
+
+        data = {
+            'from_person': mother.pk,
+            'to_person': self.son.pk,
+            'relationship_type': 'biological_parent',
+        }
+        response = self.client.post(
+            reverse('genealogy:relationship_create', args=[self.tree.pk]),
+            data
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            Relationship.objects.filter(
+                from_person=mother,
+                to_person=self.son,
+                relationship_type='biological_parent'
+            ).exists()
+        )
+
+    def test_delete_requires_login(self) -> None:
+        """Удаление связи требует входа."""
+        response = self.client.get(
+            reverse('genealogy:relationship_delete', args=[self.relationship.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/accounts/login/', response.url)
+
+    def test_delete_by_owner(self) -> None:
+        """Владелец может удалять связи."""
+        self.client.login(username='owner', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:relationship_delete', args=[self.relationship.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_delete_by_viewer_forbidden(self) -> None:
+        """Читатель не может удалять связи."""
+        self.client.login(username='viewer', password='pass123')
+        response = self.client.get(
+            reverse('genealogy:relationship_delete', args=[self.relationship.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_success(self) -> None:
+        """Успешное удаление связи."""
+        self.client.login(username='owner', password='pass123')
+        relationship_pk = self.relationship.pk
+
+        response = self.client.post(
+            reverse('genealogy:relationship_delete', args=[relationship_pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Relationship.objects.filter(pk=relationship_pk).exists())

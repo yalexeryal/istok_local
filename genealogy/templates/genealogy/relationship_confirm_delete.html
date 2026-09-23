@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Удаление связи — Исток{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+        <!-- Заголовок -->
+        <div class="text-center mb-6">
+            <span class="text-6xl mb-4 block" aria-hidden="true">⚠️</span>
+            <h1 class="text-2xl font-bold text-gray-900 mb-2">
+                Удаление родственной связи
+            </h1>
+            <p class="text-gray-600">
+                Вы уверены, что хотите удалить связь между
+                <strong class="text-gray-900">"{{ object.from_person.full_name_display }}"</strong> и
+                <strong class="text-gray-900">"{{ object.to_person.full_name_display }}"</strong>?
+            </p>
+        </div>
+
+        <!-- Информация о связи -->
+        <div class="bg-gray-50 rounded-md p-4 mb-6">
+            <h3 class="text-sm font-medium text-gray-700 mb-2">Информация о связи:</h3>
+            <dl class="grid grid-cols-2 gap-2 text-sm">
+                <dt class="text-gray-500">От кого:</dt>
+                <dd class="text-gray-900">{{ object.from_person.full_name_display }}</dd>
+
+                <dt class="text-gray-500">К кому:</dt>
+                <dd class="text-gray-900">{{ object.to_person.full_name_display }}</dd>
+
+                <dt class="text-gray-500">Тип связи:</dt>
+                <dd class="text-gray-900">{{ object.get_relationship_type_display }}</dd>
+
+                {% if object.start_date %}
+                    <dt class="text-gray-500">Дата начала:</dt>
+                    <dd class="text-gray-900">{{ object.start_date|date:"d.m.Y" }}</dd>
+                {% endif %}
+
+                <dt class="text-gray-500">Дерево:</dt>
+                <dd class="text-gray-900">{{ tree.name }}</dd>
+            </dl>
+        </div>
+
+        <!-- Форма подтверждения -->
+        <form method="post">
+            {% csrf_token %}
+            <div class="flex justify-center space-x-3">
+                <a href="{% url 'genealogy:tree_detail' tree.pk %}"
+                   class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">
+                    Отмена
+                </a>
+                <button type="submit"
+                        class="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition font-medium">
+                    Да, удалить
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

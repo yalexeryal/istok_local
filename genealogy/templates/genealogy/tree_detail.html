@@ -42,7 +42,7 @@
         <div>
             <h1 class="text-3xl font-bold text-gray-900">{{ tree.name }}</h1>
             {% if tree.description %}
-                <p class="mt-2 text-gray-600">{{ tree.description }}</p>
+            <p class="mt-2 text-gray-600">{{ tree.description }}</p>
             {% endif %}
             <div class="mt-4 flex items-center space-x-4 text-sm text-gray-500">
                 <span>👥 {{ persons_count }} персон</span>
@@ -62,98 +62,114 @@
     <h2 class="text-xl font-semibold text-gray-900 mb-4">Визуализация дерева</h2>
     <div id="cy"></div>
     <div class="mt-4 text-sm text-gray-600">
-        <p><strong>Управление:</strong> Перетаскивайте узлы, используйте колёсико мыши для масштабирования, кликните на узел для просмотра карточки персоны.</p>
+        <p><strong>Управление:</strong> Перетаскивайте узлы, используйте колёсико мыши для масштабирования, кликните на
+            узел для просмотра карточки персоны.</p>
     </div>
 </div>
 
 <!-- Список персон -->
 <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-    <h2 class="text-xl font-semibold text-gray-900 mb-4">Все персоны ({{ persons_count }})</h2>
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold text-gray-900">Все персоны ({{ persons_count }})</h2>
+        {% if can_edit %}
+        <div class="flex space-x-2">
+            <a href="{% url 'genealogy:person_create' tree.pk %}"
+               class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
+                + Добавить персону
+            </a>
+            <a href="{% url 'genealogy:relationship_create' tree.pk %}"
+               class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition font-medium">
+                + Добавить связь
+            </a>
+        </div>
+        {% endif %}
+    </div>
 
     {% if persons %}
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Имя
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Пол
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Рождение
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Смерть
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Возраст
-                        </th>
-                    </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                    {% for person in persons %}
-                        <tr class="hover:bg-gray-50 cursor-pointer"
-                            onclick="showPersonModal({{ person.pk }})">
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm font-medium text-gray-900">
-                                    {{ person.full_name_display }}
-                                </div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm text-gray-500">
-                                    {{ person.get_gender_display }}
-                                </div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm text-gray-500">
-                                    {% if person.birth_date %}
-                                        {{ person.birth_date|date:"d.m.Y" }}
-                                        {% if person.is_birth_date_approx %}
-                                            <span class="text-xs text-gray-400">(прибл.)</span>
-                                        {% endif %}
-                                    {% else %}
-                                        —
-                                    {% endif %}
-                                </div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm text-gray-500">
-                                    {% if person.death_date %}
-                                        {{ person.death_date|date:"d.m.Y" }}
-                                        {% if person.is_death_date_approx %}
-                                            <span class="text-xs text-gray-400">(прибл.)</span>
-                                        {% endif %}
-                                    {% else %}
-                                        —
-                                    {% endif %}
-                                </div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm text-gray-500">
-                                    {% if person.age %}
-                                        {{ person.age }}
-                                        {% if person.is_alive %}
-                                            <span class="text-xs text-green-600">(жив)</span>
-                                        {% else %}
-                                            <span class="text-xs text-gray-400">(†)</span>
-                                        {% endif %}
-                                    {% else %}
-                                        —
-                                    {% endif %}
-                                </div>
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+    <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Имя
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Пол
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Рождение
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Смерть
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Возраст
+                </th>
+            </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+            {% for person in persons %}
+            <tr class="hover:bg-gray-50 cursor-pointer"
+                onclick="window.location='{% url " genealogy:person_detail
+            " person.pk %}'">
+            <td class="px-6 py-4 whitespace-nowrap">
+                <div class="text-sm font-medium text-gray-900">
+                    {{ person.full_name_display }}
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                <div class="text-sm text-gray-500">
+                    {{ person.get_gender_display }}
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                <div class="text-sm text-gray-500">
+                    {% if person.birth_date %}
+                    {{ person.birth_date|date:"d.m.Y" }}
+                    {% if person.is_birth_date_approx %}
+                    <span class="text-xs text-gray-400">(прибл.)</span>
+                    {% endif %}
+                    {% else %}
+                    —
+                    {% endif %}
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                <div class="text-sm text-gray-500">
+                    {% if person.death_date %}
+                    {{ person.death_date|date:"d.m.Y" }}
+                    {% if person.is_death_date_approx %}
+                    <span class="text-xs text-gray-400">(прибл.)</span>
+                    {% endif %}
+                    {% else %}
+                    —
+                    {% endif %}
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                <div class="text-sm text-gray-500">
+                    {% if person.age %}
+                    {{ person.age }}
+                    {% if person.is_alive %}
+                    <span class="text-xs text-green-600">(жив)</span>
+                    {% else %}
+                    <span class="text-xs text-gray-400">(†)</span>
+                    {% endif %}
+                    {% else %}
+                    —
+                    {% endif %}
+                </div>
+            </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
     {% else %}
-        <div class="text-center py-12">
-            <span class="text-6xl mb-4 block" aria-hidden="true">🌱</span>
-            <p class="text-gray-600">В этом дереве пока нет персон.</p>
-        </div>
+    <div class="text-center py-12">
+        <span class="text-6xl mb-4 block" aria-hidden="true">🌱</span>
+        <p class="text-gray-600">В этом дереве пока нет персон.</p>
+    </div>
     {% endif %}
 </div>
 
@@ -176,8 +192,13 @@
 {% block extra_scripts %}
 <script>
     // Инициализация Cytoscape.js
-    document.addEventListener('DOMContentLoaded', function() {
-        const treeId = {{ tree.pk }};
+    document.addEventListener('DOMContentLoaded', function () {
+        const treeId = {
+        {
+            tree.pk
+        }
+    }
+        ;
 
         // Загружаем данные дерева через API
         fetch(`/api/tree/${treeId}/data/`)
@@ -195,9 +216,9 @@
                             selector: 'node',
                             style: {
                                 'label': 'data(label)',
-                                'background-color': function(ele) {
+                                'background-color': function (ele) {
                                     return ele.data('gender') === 'male' ? '#3b82f6' :
-                                           ele.data('gender') === 'female' ? '#ec4899' : '#6b7280';
+                                        ele.data('gender') === 'female' ? '#ec4899' : '#6b7280';
                                 },
                                 'color': '#fff',
                                 'text-valign': 'center',
@@ -237,7 +258,7 @@
                 });
 
                 // Обработчик клика на узел
-                cy.on('tap', 'node', function(evt) {
+                cy.on('tap', 'node', function (evt) {
                     const node = evt.target;
                     showPersonModal(node.data('id'));
                 });
@@ -301,7 +322,7 @@
     }
 
     // Закрытие по клику вне модального окна
-    window.onclick = function(event) {
+    window.onclick = function (event) {
         const modal = document.getElementById('personModal');
         if (event.target === modal) {
             closePersonModal();

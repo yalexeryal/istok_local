@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}Создание связи — Исток{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    <!-- Заголовок -->
+    <div class="mb-8">
+        <div class="flex items-center justify-between mb-4">
+            <h1 class="text-3xl font-bold text-gray-900">
+                Создание родственной связи
+            </h1>
+            <a href="{% url 'genealogy:tree_detail' tree.pk %}"
+               class="text-gray-600 hover:text-gray-900 font-medium">
+                ← Назад к дереву
+            </a>
+        </div>
+        <p class="text-gray-600">
+            Дерево: <strong>{{ tree.name }}</strong>
+        </p>
+    </div>
+
+    <!-- Форма -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+        <form method="post" class="space-y-6">
+            {% csrf_token %}
+
+            <!-- Общие ошибки формы -->
+            {% if form.non_field_errors %}
+                <div class="p-4 bg-red-50 border border-red-200 rounded-md">
+                    {% for error in form.non_field_errors %}
+                        <p class="text-sm text-red-800">{{ error }}</p>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <!-- Основные данные -->
+            <div>
+                <h2 class="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
+                    Основные данные
+                </h2>
+                <div class="space-y-4">
+                    <!-- От кого -->
+                    <div>
+                        <label for="{{ form.from_person.id_for_label }}"
+                               class="block text-sm font-medium text-gray-700 mb-2">
+                            От кого <span class="text-red-500">*</span>
+                        </label>
+                        {{ form.from_person }}
+                        {% if form.from_person.errors %}
+                            <p class="mt-1 text-sm text-red-600">{{ form.from_person.errors.0 }}</p>
+                        {% endif %}
+                        <p class="mt-1 text-xs text-gray-500">
+                            Выберите персону, от которой идёт связь (например, родитель)
+                        </p>
+                    </div>
+
+                    <!-- К кому -->
+                    <div>
+                        <label for="{{ form.to_person.id_for_label }}"
+                               class="block text-sm font-medium text-gray-700 mb-2">
+                            К кому <span class="text-red-500">*</span>
+                        </label>
+                        {{ form.to_person }}
+                        {% if form.to_person.errors %}
+                            <p class="mt-1 text-sm text-red-600">{{ form.to_person.errors.0 }}</p>
+                        {% endif %}
+                        <p class="mt-1 text-xs text-gray-500">
+                            Выберите персону, к которой идёт связь (например, ребёнок)
+                        </p>
+                    </div>
+
+                    <!-- Тип связи -->
+                    <div>
+                        <label for="{{ form.relationship_type.id_for_label }}"
+                               class="block text-sm font-medium text-gray-700 mb-2">
+                            Тип связи <span class="text-red-500">*</span>
+                        </label>
+                        {{ form.relationship_type }}
+                        {% if form.relationship_type.errors %}
+                            <p class="mt-1 text-sm text-red-600">{{ form.relationship_type.errors.0 }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Даты и детали -->
+            <div>
+                <h2 class="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
+                    Даты и детали (необязательно)
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Дата начала -->
+                    <div>
+                        <label for="{{ form.start_date.id_for_label }}"
+                               class="block text-sm font-medium text-gray-700 mb-2">
+                            Дата начала
+                        </label>
+                        {{ form.start_date }}
+                        {% if form.start_date.errors %}
+                            <p class="mt-1 text-sm text-red-600">{{ form.start_date.errors.0 }}</p>
+                        {% endif %}
+                    </div>
+
+                    <!-- Дата окончания -->
+                    <div>
+                        <label for="{{ form.end_date.id_for_label }}"
+                               class="block text-sm font-medium text-gray-700 mb-2">
+                            Дата окончания
+                        </label>
+                        {{ form.end_date }}
+                        {% if form.end_date.errors %}
+                            <p class="mt-1 text-sm text-red-600">{{ form.end_date.errors.0 }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Текущая связь -->
+                <div class="mt-4">
+                    <label class="inline-flex items-center">
+                        {{ form.is_current }}
+                        <span class="ml-2 text-sm text-gray-700">Текущая связь</span>
+                    </label>
+                </div>
+
+                <!-- Описание -->
+                <div class="mt-4">
+                    <label for="{{ form.description.id_for_label }}"
+                           class="block text-sm font-medium text-gray-700 mb-2">
+                        Описание
+                    </label>
+                    {{ form.description }}
+                    {% if form.description.errors %}
+                        <p class="mt-1 text-sm text-red-600">{{ form.description.errors.0 }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Кнопки -->
+            <div class="flex justify-end space-x-3 pt-6 border-t border-gray-200">
+                <a href="{% url 'genealogy:tree_detail' tree.pk %}"
+                   class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">
+                    Отмена
+                </a>
+                <button type="submit"
+                        class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
+                    Создать связь
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
