@@ -12,37 +12,26 @@ from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views import View
-from django.views.generic import (
-    CreateView,
-    DeleteView,
-    DetailView,
-    ListView,
-    TemplateView,
-    UpdateView,
-)
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
-from .forms import (
-    ExportForm,
-    ImportForm,
-    LifeEventForm,
-    PersonForm,
-    RelationshipForm,
-)
+from .forms import ExportForm, ImportForm, LifeEventForm, PersonForm, RelationshipForm, TreeCreateForm
 from .models import (
+    CollaboratorRoleEnum,
+    EventTypeEnum,
     ExportTask,
     LifeEvent,
     Person,
     Relationship,
+    RelationshipTypeEnum,
     Tree,
+    TreeCollaborator,
 )
 from .services.export_service import ExportService
 from .services.import_service import ImportService
+from .utils.names import generate_patronymic
 
-
-# === ПУБЛИЧНЫЕ СТРАНИЦЫ ===
 
 class WelcomeView(TemplateView):
-    """Публичная страница приветствия."""
     template_name = 'genealogy/welcome.html'
 
     def get(self, request, *args, **kwargs):
@@ -52,7 +41,6 @@ class WelcomeView(TemplateView):
 
 
 class RegisterView(CreateView):
-    """Страница регистрации нового пользователя."""
     form_class = UserCreationForm
     template_name = 'registration/register.html'
     success_url = reverse_lazy('genealogy:tree_list')
@@ -65,17 +53,11 @@ class RegisterView(CreateView):
     def form_valid(self, form):
         response = super().form_valid(form)
         login(self.request, self.object)
-        messages.success(
-            self.request,
-            f'Добро пожаловать, {self.object.username}! Ваш аккаунт успешно создан.'
-        )
+        messages.success(self.request, f'Добро пожаловать, {self.object.username}! Ваш аккаунт успешно создан.')
         return response
 
 
-# === СТРАНИЦЫ, ТРЕБУЮЩИЕ АВТОРИЗАЦИИ ===
-
 class TreeListView(LoginRequiredMixin, ListView):
-    """Список деревьев, доступных пользователю."""
     model = Tree
     template_name = 'genealogy/tree_list.html'
     context_object_name = 'trees'
@@ -83,39 +65,38 @@ class TreeListView(LoginRequiredMixin, ListView):
     def get_queryset(self):
         user = self.request.user
         if user.is_superuser:
-            queryset = Tree.objects.all()
-        else:
-            queryset = Tree.objects.filter(
-                Q(collaborators__user=user) | Q(is_public=True)
-            ).distinct()
-
-        return queryset.annotate(
-            persons_count=Count('persons', distinct=True),
-            user_role=Q(collaborators__user=user)
-        ).order_by('-updated_at')
+            return Tree.objects.all()
+        return Tree.objects.filter(Q(collaborators__user=user) | Q(is_public=True)).distinct().annotate(
+            persons_count=Count('persons', distinct=True), user_role=Q(collaborators__user=user)).order_by(
+            '-updated_at')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
-        trees = context['trees']
-
         tree_roles = {}
-        for tree in trees:
+        for tree in context['trees']:
             collaborator = tree.collaborators.filter(user=user).first()
-            if collaborator:
-                tree_roles[tree.pk] = collaborator.get_role_display()
-            elif tree.is_public:
-                tree_roles[tree.pk] = 'Гость'
-            else:
-                tree_roles[tree.pk] = '—'
-
+            tree_roles[tree.pk] = collaborator.get_role_display() if collaborator else (
+                'Гость' if tree.is_public else '—')
         context['tree_roles'] = tree_roles
-        context['total_trees'] = trees.count()
+        context['total_trees'] = context['trees'].count()
         return context
 
 
+class TreeCreateView(LoginRequiredMixin, CreateView):
+    model = Tree
+    form_class = TreeCreateForm
+    template_name = 'genealogy/tree_form.html'
+    success_url = reverse_lazy('genealogy:tree_list')
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        TreeCollaborator.objects.create(tree=self.object, user=self.request.user, role=CollaboratorRoleEnum.OWNER)
+        messages.success(self.request, f'Дерево "{self.object.name}" успешно создано.')
+        return response
+
+
 class TreeDetailView(LoginRequiredMixin, DetailView):
-    """Детальная страница дерева с визуализацией графа."""
     model = Tree
     template_name = 'genealogy/tree_detail.html'
     context_object_name = 'tree'
@@ -124,23 +105,15 @@ class TreeDetailView(LoginRequiredMixin, DetailView):
         self.object = self.get_object()
         if not self.object.user_can_view(request.user):
             return HttpResponseForbidden("У вас нет доступа к этому дереву")
-        context = self.get_context_data(object=self.object)
-        return self.render_to_response(context)
+        return self.render_to_response(self.get_context_data(object=self.object))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         tree = self.object
         user = self.request.user
-
-        persons = tree.persons.all().prefetch_related(
-            'relationships_from',
-            'relationships_to',
-            'life_events'
-        )
-
-        context['persons'] = persons
-        context['persons_count'] = persons.count()
-
+        context['persons'] = tree.persons.all().prefetch_related('relationships_from', 'relationships_to',
+                                                                 'life_events')
+        context['persons_count'] = context['persons'].count()
         collaborator = tree.collaborators.filter(user=user).first()
         if collaborator:
             context['user_role'] = collaborator.get_role_display()
@@ -151,67 +124,66 @@ class TreeDetailView(LoginRequiredMixin, DetailView):
         else:
             context['user_role'] = 'Гость'
             context['can_edit'] = False
-
         return context
 
 
 @login_required
 def tree_data_api(request, pk):
-    """API endpoint для получения данных дерева в JSON формате."""
     tree = get_object_or_404(Tree, pk=pk)
-
     if not tree.user_can_view(request.user):
         return JsonResponse({'error': 'Access denied'}, status=403)
-
     persons = tree.persons.all()
-
-    nodes = []
-    for person in persons:
-        node = {
-            'data': {
-                'id': str(person.pk),
-                'label': person.full_name_display,
-                'first_name': person.first_name,
-                'last_name': person.last_name or '',
-                'gender': person.gender,
-                'birth_date': person.birth_date.isoformat() if person.birth_date else None,
-                'death_date': person.death_date.isoformat() if person.death_date else None,
-                'is_alive': person.is_alive,
-                'age': person.age,
-                'photo_url': person.photo.url if person.photo else None,
-            }
-        }
-        nodes.append(node)
-
+    nodes = [{'data': {'id': str(p.pk), 'label': p.full_name_display, 'first_name': p.first_name,
+                       'last_name': p.last_name or '', 'gender': p.gender,
+                       'birth_date': p.birth_date.isoformat() if p.birth_date else None,
+                       'death_date': p.death_date.isoformat() if p.death_date else None, 'is_alive': p.is_alive,
+                       'age': p.age, 'photo_url': p.photo.url if p.photo else None}} for p in persons]
     edges = []
-    for person in persons:
-        for rel in person.relationships_from.all():
-            edge = {
-                'data': {
-                    'id': f"{rel.from_person_id}-{rel.to_person_id}-{rel.relationship_type}",
-                    'source': str(rel.from_person_id),
-                    'target': str(rel.to_person_id),
-                    'relationship_type': rel.relationship_type,
-                    'label': rel.get_relationship_type_display(),
-                }
-            }
-            edges.append(edge)
-
-    return JsonResponse({
-        'tree': {
-            'id': tree.pk,
-            'name': tree.name,
-            'description': tree.description,
-        },
-        'nodes': nodes,
-        'edges': edges,
-    })
+    for p in persons:
+        for rel in p.relationships_from.all():
+            edges.append({'data': {'id': f"{rel.from_person_id}-{rel.to_person_id}-{rel.relationship_type}",
+                                   'source': str(rel.from_person_id), 'target': str(rel.to_person_id),
+                                   'relationship_type': rel.relationship_type,
+                                   'label': rel.get_relationship_type_display()}})
+    return JsonResponse(
+        {'tree': {'id': tree.pk, 'name': tree.name, 'description': tree.description}, 'nodes': nodes, 'edges': edges})
 
 
-# === VIEWS ДЛЯ ПЕРСОН (CRUD) ===
+def _get_current_spouse(person: Person) -> Person | None:
+    """
+    Возвращает текущего супруга персоны по приоритету:
+    1. SPOUSE с is_current=True
+    2. FIANCE
+    3. None
+    """
+    # Ищем официального супруга с is_current=True
+    spouse_rel = Relationship.objects.filter(
+        Q(from_person=person, relationship_type=RelationshipTypeEnum.SPOUSE, is_current=True) |
+        Q(to_person=person, relationship_type=RelationshipTypeEnum.SPOUSE, is_current=True)
+    ).first()
+
+    if spouse_rel:
+        return spouse_rel.to_person if spouse_rel.from_person == person else spouse_rel.from_person
+
+    # Если нет, ищем жениха/невесту
+    fiance_rel = Relationship.objects.filter(
+        Q(from_person=person, relationship_type=RelationshipTypeEnum.FIANCE) |
+        Q(to_person=person, relationship_type=RelationshipTypeEnum.FIANCE)
+    ).first()
+
+    if fiance_rel:
+        return fiance_rel.to_person if fiance_rel.from_person == person else fiance_rel.from_person
+
+    return None
+
 
 class PersonCreateView(LoginRequiredMixin, CreateView):
-    """Создание новой персоны в дереве."""
+    """
+    Создание новой персоны с поддержкой контекстных параметров:
+    - ?parent1_id=X&relation=son → создание ребенка (с автозаполнением)
+    - ?spouse_of=X → создание супруга
+    - ?child_id=X → создание родителя
+    """
     model = Person
     form_class = PersonForm
     template_name = 'genealogy/person_form.html'
@@ -224,7 +196,78 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
         if not self.tree.user_can_edit(request.user):
             return HttpResponseForbidden("У вас нет прав для добавления персон в это дерево")
 
+        # Обрабатываем контекстные параметры
+        self.parent1_id = request.GET.get('parent1_id')
+        self.parent2_id = request.GET.get('parent2_id')
+        self.relation = request.GET.get('relation')  # son, daughter, adopted_son, adopted_daughter
+        self.spouse_of_id = request.GET.get('spouse_of')
+        self.child_id = request.GET.get('child_id')
+
+        # Загружаем связанные персоны
+        self.parent1 = Person.objects.filter(pk=self.parent1_id).first() if self.parent1_id else None
+        self.parent2 = Person.objects.filter(pk=self.parent2_id).first() if self.parent2_id else None
+        self.spouse_of = Person.objects.filter(pk=self.spouse_of_id).first() if self.spouse_of_id else None
+        self.child = Person.objects.filter(pk=self.child_id).first() if self.child_id else None
+
+        # Если создается ребенок и parent2 не указан — берем текущего супруга parent1
+        if self.parent1 and not self.parent2 and self.relation in ['son', 'daughter', 'adopted_son',
+                                                                   'adopted_daughter']:
+            self.parent2 = _get_current_spouse(self.parent1)
+
         return super().dispatch(request, *args, **kwargs)
+
+    def get_initial(self):
+        """Предзаполняем форму на основе контекста."""
+        initial = super().get_initial()
+
+        # Создание ребенка
+        if self.parent1 and self.relation in ['son', 'daughter', 'adopted_son', 'adopted_daughter']:
+            is_biological = self.relation in ['son', 'daughter']
+            is_male = self.relation in ['son', 'adopted_son']
+
+            initial['gender'] = 'male' if is_male else 'female'
+
+            # Для биологических детей автозаполняем фамилию и отчество
+            if is_biological:
+                # Определяем отца (мужчина среди родителей)
+                father = None
+                mother = None
+                if self.parent1.gender == 'male':
+                    father = self.parent1
+                    mother = self.parent2
+                elif self.parent2 and self.parent2.gender == 'male':
+                    father = self.parent2
+                    mother = self.parent1
+                else:
+                    # Если оба одного пола или один не указан — используем parent1
+                    father = self.parent1
+
+                # Фамилия от отца (или от единственного родителя)
+                if father and father.last_name:
+                    initial['last_name'] = father.last_name
+                elif mother and mother.last_name:
+                    initial['last_name'] = mother.last_name
+
+                # Отчество генерируется от имени отца
+                if father and father.first_name:
+                    culture = father.culture or 'ru'
+                    patronymic = generate_patronymic(father.first_name, 'male' if is_male else 'female', culture)
+                    if patronymic:
+                        initial['middle_name'] = patronymic
+
+        # Создание супруга
+        elif self.spouse_of:
+            # Пол супруга — противоположный (по умолчанию, но редактируемый)
+            if self.spouse_of.gender == 'male':
+                initial['gender'] = 'female'
+            elif self.spouse_of.gender == 'female':
+                initial['gender'] = 'male'
+
+        # Создание родителя
+        elif self.child:
+            pass  # Ничего не предзаполняем
+
+        return initial
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -235,56 +278,148 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['tree'] = self.tree
-        context['action'] = 'Создание'
+
+        # Определяем заголовок формы
+        if self.parent1 and self.relation in ['son', 'daughter', 'adopted_son', 'adopted_daughter']:
+            relation_labels = {
+                'son': 'сына',
+                'daughter': 'дочери',
+                'adopted_son': 'приемного сына',
+                'adopted_daughter': 'приемную дочь',
+            }
+            context['action'] = f'Создание карточки {relation_labels[self.relation]}'
+            context['parent1'] = self.parent1
+            context['parent2'] = self.parent2
+            context['relation'] = self.relation
+            context['form_mode'] = 'child'
+        elif self.spouse_of:
+            context['action'] = 'Создание карточки супруга/супруги'
+            context['spouse_of'] = self.spouse_of
+            context['form_mode'] = 'spouse'
+        elif self.child:
+            context['action'] = 'Создание карточки родителя'
+            context['child'] = self.child
+            context['form_mode'] = 'parent'
+        else:
+            context['action'] = 'Создание'
+            context['form_mode'] = 'default'
+
         return context
 
     def form_valid(self, form):
         response = super().form_valid(form)
-        messages.success(
-            self.request,
-            f'Персона "{self.object.full_name_display}" успешно создана.'
-        )
+        person = self.object
+
+        # Создаем связи и события в зависимости от режима
+        if self.parent1 and self.relation in ['son', 'daughter', 'adopted_son', 'adopted_daughter']:
+            # Режим: создание ребенка
+            is_biological = self.relation in ['son', 'daughter']
+            rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT if is_biological else RelationshipTypeEnum.ADOPTIVE_PARENT
+
+            # Связь parent1 → child
+            Relationship.objects.get_or_create(
+                from_person=self.parent1,
+                to_person=person,
+                relationship_type=rel_type,
+                defaults={'created_by': self.request.user}
+            )
+
+            # Связь parent2 → child (если указан)
+            if self.parent2:
+                Relationship.objects.get_or_create(
+                    from_person=self.parent2,
+                    to_person=person,
+                    relationship_type=rel_type,
+                    defaults={'created_by': self.request.user}
+                )
+
+            # Создаем событие "Рождение ребенка" у родителей (если указана дата рождения)
+            if person.birth_date:
+                for parent in [self.parent1, self.parent2]:
+                    if parent:
+                        LifeEvent.objects.create(
+                            person=parent,
+                            event_type=EventTypeEnum.BIRTH_OF_CHILD,
+                            event_date=person.birth_date,
+                            location=person.birth_place,
+                            description=f'Рождение {"сына" if person.gender == "male" else "дочери"}: {person.full_name_display}',
+                            related_person=person,
+                            created_by=self.request.user
+                        )
+
+            messages.success(self.request,
+                             f'Ребенок "{person.full_name_display}" успешно создан. Связи с родителями установлены.')
+
+        elif self.spouse_of:
+            # Режим: создание супруга
+            Relationship.objects.get_or_create(
+                from_person=self.spouse_of,
+                to_person=person,
+                relationship_type=RelationshipTypeEnum.SPOUSE,
+                defaults={'created_by': self.request.user, 'is_current': True}
+            )
+            messages.success(self.request,
+                             f'Супруг(а) "{person.full_name_display}" успешно создан(а). Связь установлена.')
+
+        elif self.child:
+            # Режим: создание родителя
+            # Определяем пол родителя
+            if person.gender == 'male':
+                rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT
+            else:
+                rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT
+
+            Relationship.objects.get_or_create(
+                from_person=person,
+                to_person=self.child,
+                relationship_type=rel_type,
+                defaults={'created_by': self.request.user}
+            )
+            messages.success(self.request,
+                             f'Родитель "{person.full_name_display}" успешно создан. Связь с ребенком установлена.')
+
+        else:
+            messages.success(self.request, f'Персона "{person.full_name_display}" успешно создана.')
+
         return response
 
     def get_success_url(self):
+        # Возвращаемся на страницу того, из карточки кого создавали
+        if self.parent1:
+            return reverse('genealogy:person_detail', kwargs={'pk': self.parent1.pk})
+        elif self.spouse_of:
+            return reverse('genealogy:person_detail', kwargs={'pk': self.spouse_of.pk})
+        elif self.child:
+            return reverse('genealogy:person_detail', kwargs={'pk': self.child.pk})
         return reverse('genealogy:tree_detail', kwargs={'pk': self.tree.pk})
 
 
 class PersonUpdateView(LoginRequiredMixin, UpdateView):
-    """Редактирование существующей персоны."""
     model = Person
     form_class = PersonForm
     template_name = 'genealogy/person_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-
+        if not request.user.is_authenticated: return redirect_to_login(request.get_full_path())
         self.object = self.get_object()
         self.tree = self.object.tree
-        if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden("У вас нет прав для редактирования персон в этом дереве")
-
+        if not self.tree.user_can_edit(request.user): return HttpResponseForbidden(
+            "У вас нет прав для редактирования персон в этом дереве")
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs['tree'] = self.tree
-        kwargs['user'] = self.request.user
+        kwargs['tree'], kwargs['user'] = self.tree, self.request.user
         return kwargs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['tree'] = self.tree
-        context['action'] = 'Редактирование'
+        context['tree'], context['action'] = self.tree, 'Редактирование'
         return context
 
     def form_valid(self, form):
         response = super().form_valid(form)
-        messages.success(
-            self.request,
-            f'Персона "{self.object.full_name_display}" успешно обновлена.'
-        )
+        messages.success(self.request, f'Персона "{self.object.full_name_display}" успешно обновлена.')
         return response
 
     def get_success_url(self):
@@ -292,19 +427,15 @@ class PersonUpdateView(LoginRequiredMixin, UpdateView):
 
 
 class PersonDeleteView(LoginRequiredMixin, DeleteView):
-    """Удаление персоны с подтверждением."""
     model = Person
     template_name = 'genealogy/person_confirm_delete.html'
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-
+        if not request.user.is_authenticated: return redirect_to_login(request.get_full_path())
         self.object = self.get_object()
         self.tree = self.object.tree
-        if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden("У вас нет прав для удаления персон в этом дереве")
-
+        if not self.tree.user_can_edit(request.user): return HttpResponseForbidden(
+            "У вас нет прав для удаления персон в этом дереве")
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -314,9 +445,8 @@ class PersonDeleteView(LoginRequiredMixin, DeleteView):
 
     def delete(self, request, *args, **kwargs):
         self.object = self.get_object()
-        person_name = self.object.full_name_display
         response = super().delete(request, *args, **kwargs)
-        messages.success(request, f'Персона "{person_name}" успешно удалена.')
+        messages.success(request, f'Персона "{self.object.full_name_display}" успешно удалена.')
         return response
 
     def get_success_url(self):
@@ -324,21 +454,16 @@ class PersonDeleteView(LoginRequiredMixin, DeleteView):
 
 
 class PersonDetailView(LoginRequiredMixin, DetailView):
-    """Карточка персоны с полной информацией."""
     model = Person
     template_name = 'genealogy/person_detail.html'
     context_object_name = 'person'
 
     def get(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-
+        if not request.user.is_authenticated: return redirect_to_login(request.get_full_path())
         self.object = self.get_object()
-        if not self.object.tree.user_can_view(request.user):
-            return HttpResponseForbidden("У вас нет доступа к этой персоне")
-
-        context = self.get_context_data(object=self.object)
-        return self.render_to_response(context)
+        if not self.object.tree.user_can_view(request.user): return HttpResponseForbidden(
+            "У вас нет доступа к этой персоне")
+        return self.render_to_response(self.get_context_data(object=self.object))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -346,45 +471,86 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
         user = self.request.user
 
         context['tree'] = person.tree
-        context['parents'] = person.get_parents()
-        context['children'] = person.get_children()
-        context['siblings'] = person.get_siblings()
-        context['life_events'] = person.life_events.all().order_by('event_date')
+        context['combined_timeline'] = person.get_combined_timeline()
         context['can_edit'] = person.tree.user_can_edit(user)
 
         collaborator = person.tree.collaborators.filter(user=user).first()
-        if collaborator:
-            context['user_role'] = collaborator.get_role_display()
-        elif user.is_superuser:
-            context['user_role'] = 'Администратор'
-        else:
-            context['user_role'] = 'Гость'
+        context['user_role'] = collaborator.get_role_display() if collaborator else (
+            'Администратор' if user.is_superuser else 'Гость')
 
+        # Формируем список ближайших родственников
+        close_relatives = []
+
+        # Родители
+        for p in person.get_parents():
+            # Определяем тип связи (родной/приемный)
+            rel = Relationship.objects.filter(
+                from_person=p, to_person=person,
+                relationship_type__in=[RelationshipTypeEnum.BIOLOGICAL_PARENT, RelationshipTypeEnum.ADOPTIVE_PARENT,
+                                       RelationshipTypeEnum.STEP_PARENT]
+            ).first()
+            if rel:
+                if rel.relationship_type == RelationshipTypeEnum.BIOLOGICAL_PARENT:
+                    rel_type = "Отец (Родной)" if p.gender == 'male' else "Мать (Родная)"
+                elif rel.relationship_type == RelationshipTypeEnum.ADOPTIVE_PARENT:
+                    rel_type = "Отец (Приемный)" if p.gender == 'male' else "Мать (Приемная)"
+                else:
+                    rel_type = "Отчим" if p.gender == 'male' else "Мачеха"
+                close_relatives.append({'person': p, 'relation': rel_type})
+
+        # Дети
+        for c in person.get_children():
+            rel = Relationship.objects.filter(
+                from_person=person, to_person=c,
+                relationship_type__in=[RelationshipTypeEnum.BIOLOGICAL_PARENT, RelationshipTypeEnum.ADOPTIVE_PARENT,
+                                       RelationshipTypeEnum.STEP_PARENT]
+            ).first()
+            if rel:
+                if rel.relationship_type == RelationshipTypeEnum.BIOLOGICAL_PARENT:
+                    rel_type = "Сын (Родной)" if c.gender == 'male' else "Дочь (Родная)"
+                elif rel.relationship_type == RelationshipTypeEnum.ADOPTIVE_PARENT:
+                    rel_type = "Сын (Приемный)" if c.gender == 'male' else "Дочь (Приемная)"
+                else:
+                    rel_type = "Пасынок" if c.gender == 'male' else "Падчерица"
+                close_relatives.append({'person': c, 'relation': rel_type})
+
+        # Супруги/Партнеры
+        spouse_rels = Relationship.objects.filter(
+            Q(from_person=person, relationship_type__in=[RelationshipTypeEnum.SPOUSE, RelationshipTypeEnum.EX_SPOUSE,
+                                                         RelationshipTypeEnum.FIANCE]) |
+            Q(to_person=person, relationship_type__in=[RelationshipTypeEnum.SPOUSE, RelationshipTypeEnum.EX_SPOUSE,
+                                                       RelationshipTypeEnum.FIANCE])
+        ).distinct()
+
+        for rel in spouse_rels:
+            partner = rel.to_person if rel.from_person == person else rel.from_person
+            if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
+                rel_type = "Партнер (Официальный брак)"
+            elif rel.relationship_type == RelationshipTypeEnum.EX_SPOUSE:
+                rel_type = "Бывший партнер"
+            else:
+                rel_type = "Жених/Невеста"
+            close_relatives.append({'person': partner, 'relation': rel_type})
+
+        context['close_relatives'] = close_relatives
         return context
 
 
-# === VIEWS ДЛЯ РОДСТВЕННЫХ СВЯЗЕЙ ===
-
 class RelationshipCreateView(LoginRequiredMixin, CreateView):
-    """Создание родственной связи между двумя персонами."""
     model = Relationship
     form_class = RelationshipForm
     template_name = 'genealogy/relationship_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-
+        if not request.user.is_authenticated: return redirect_to_login(request.get_full_path())
         self.tree = get_object_or_404(Tree, pk=self.kwargs['tree_pk'])
-        if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden("У вас нет прав для добавления связей в это дерево")
-
+        if not self.tree.user_can_edit(request.user): return HttpResponseForbidden(
+            "У вас нет прав для добавления связей в это дерево")
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs['tree'] = self.tree
-        kwargs['user'] = self.request.user
+        kwargs['tree'], kwargs['user'] = self.tree, self.request.user
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -394,11 +560,8 @@ class RelationshipCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         response = super().form_valid(form)
-        messages.success(
-            self.request,
-            f'Связь между "{self.object.from_person.full_name_display}" и '
-            f'"{self.object.to_person.full_name_display}" успешно создана.'
-        )
+        messages.success(self.request,
+                         f'Связь между "{self.object.from_person.full_name_display}" и "{self.object.to_person.full_name_display}" успешно создана.')
         return response
 
     def get_success_url(self):
@@ -406,19 +569,15 @@ class RelationshipCreateView(LoginRequiredMixin, CreateView):
 
 
 class RelationshipDeleteView(LoginRequiredMixin, DeleteView):
-    """Удаление родственной связи с подтверждением."""
     model = Relationship
     template_name = 'genealogy/relationship_confirm_delete.html'
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-
+        if not request.user.is_authenticated: return redirect_to_login(request.get_full_path())
         self.object = self.get_object()
         self.tree = self.object.from_person.tree
-        if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden("У вас нет прав для удаления связей в этом дереве")
-
+        if not self.tree.user_can_edit(request.user): return HttpResponseForbidden(
+            "У вас нет прав для удаления связей в этом дереве")
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -428,56 +587,41 @@ class RelationshipDeleteView(LoginRequiredMixin, DeleteView):
 
     def delete(self, request, *args, **kwargs):
         self.object = self.get_object()
-        from_name = self.object.from_person.full_name_display
-        to_name = self.object.to_person.full_name_display
         response = super().delete(request, *args, **kwargs)
-        messages.success(request, f'Связь между "{from_name}" и "{to_name}" успешно удалена.')
+        messages.success(request,
+                         f'Связь между "{self.object.from_person.full_name_display}" и "{self.object.to_person.full_name_display}" успешно удалена.')
         return response
 
     def get_success_url(self):
         return reverse('genealogy:tree_detail', kwargs={'pk': self.tree.pk})
 
 
-# === VIEWS ДЛЯ СОБЫТИЙ ЖИЗНИ ===
-
 class LifeEventCreateView(LoginRequiredMixin, CreateView):
-    """Создание события жизни для персоны."""
     model = LifeEvent
     form_class = LifeEventForm
     template_name = 'genealogy/life_event_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-
+        if not request.user.is_authenticated: return redirect_to_login(request.get_full_path())
         self.person = get_object_or_404(Person, pk=self.kwargs['person_pk'])
         self.tree = self.person.tree
-
-        if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden("У вас нет прав для добавления событий в это дерево")
-
+        if not self.tree.user_can_edit(request.user): return HttpResponseForbidden(
+            "У вас нет прав для добавления событий в это дерево")
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs['person'] = self.person
-        kwargs['tree'] = self.tree
-        kwargs['user'] = self.request.user
+        kwargs['person'], kwargs['tree'], kwargs['user'] = self.person, self.tree, self.request.user
         return kwargs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['person'] = self.person
-        context['tree'] = self.tree
-        context['action'] = 'Создание'
+        context['person'], context['tree'], context['action'] = self.person, self.tree, 'Создание'
         return context
 
     def form_valid(self, form):
         response = super().form_valid(form)
-        messages.success(
-            self.request,
-            f'Событие "{self.object.get_event_type_display()}" успешно добавлено.'
-        )
+        messages.success(self.request, f'Событие "{self.object.get_event_type_display()}" успешно добавлено.')
         return response
 
     def get_success_url(self):
@@ -485,44 +629,32 @@ class LifeEventCreateView(LoginRequiredMixin, CreateView):
 
 
 class LifeEventUpdateView(LoginRequiredMixin, UpdateView):
-    """Редактирование события жизни."""
     model = LifeEvent
     form_class = LifeEventForm
     template_name = 'genealogy/life_event_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-
+        if not request.user.is_authenticated: return redirect_to_login(request.get_full_path())
         self.object = self.get_object()
         self.person = self.object.person
         self.tree = self.person.tree
-
-        if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden("У вас нет прав для редактирования событий в этом дереве")
-
+        if not self.tree.user_can_edit(request.user): return HttpResponseForbidden(
+            "У вас нет прав для редактирования событий в этом дереве")
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs['person'] = self.person
-        kwargs['tree'] = self.tree
-        kwargs['user'] = self.request.user
+        kwargs['person'], kwargs['tree'], kwargs['user'] = self.person, self.tree, self.request.user
         return kwargs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['person'] = self.person
-        context['tree'] = self.tree
-        context['action'] = 'Редактирование'
+        context['person'], context['tree'], context['action'] = self.person, self.tree, 'Редактирование'
         return context
 
     def form_valid(self, form):
         response = super().form_valid(form)
-        messages.success(
-            self.request,
-            f'Событие "{self.object.get_event_type_display()}" успешно обновлено.'
-        )
+        messages.success(self.request, f'Событие "{self.object.get_event_type_display()}" успешно обновлено.')
         return response
 
     def get_success_url(self):
@@ -530,72 +662,54 @@ class LifeEventUpdateView(LoginRequiredMixin, UpdateView):
 
 
 class LifeEventDeleteView(LoginRequiredMixin, DeleteView):
-    """Удаление события жизни с подтверждением."""
     model = LifeEvent
     template_name = 'genealogy/life_event_confirm_delete.html'
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-
+        if not request.user.is_authenticated: return redirect_to_login(request.get_full_path())
         self.object = self.get_object()
         self.person = self.object.person
         self.tree = self.person.tree
-
-        if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden("У вас нет прав для удаления событий в этом дереве")
-
+        if not self.tree.user_can_edit(request.user): return HttpResponseForbidden(
+            "У вас нет прав для удаления событий в этом дереве")
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['person'] = self.person
-        context['tree'] = self.tree
+        context['person'], context['tree'] = self.person, self.tree
         return context
 
     def delete(self, request, *args, **kwargs):
         self.object = self.get_object()
-        event_name = self.object.get_event_type_display()
         response = super().delete(request, *args, **kwargs)
-        messages.success(request, f'Событие "{event_name}" успешно удалено.')
+        messages.success(request, f'Событие "{self.object.get_event_type_display()}" успешно удалено.')
         return response
 
     def get_success_url(self):
         return reverse('genealogy:person_detail', kwargs={'pk': self.person.pk})
 
 
-# === VIEWS ДЛЯ ЭКСПОРТА И ИМПОРТА ===
-
 class TreeExportView(LoginRequiredMixin, View):
-    """Страница настройки и запуска экспорта дерева."""
     template_name = 'genealogy/tree_export.html'
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-
+        if not request.user.is_authenticated: return redirect_to_login(request.get_full_path())
         self.tree = get_object_or_404(Tree, pk=self.kwargs['pk'])
-        if not self.tree.user_can_edit(request.user):
-            return HttpResponseForbidden("У вас нет прав для экспорта этого дерева")
-
+        if not self.tree.user_can_edit(request.user): return HttpResponseForbidden(
+            "У вас нет прав для экспорта этого дерева")
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, *args, **kwargs):
-        form = ExportForm(tree=self.tree)
-        return render(request, self.template_name, {'form': form, 'tree': self.tree})
+        return render(request, self.template_name, {'form': ExportForm(tree=self.tree), 'tree': self.tree})
 
     def post(self, request, *args, **kwargs):
         form = ExportForm(request.POST, tree=self.tree)
         if form.is_valid():
             service = ExportService()
-            task = service.create_export_task(
-                user=request.user,
-                tree=self.tree,
-                export_type=form.cleaned_data['export_type'],
-                export_format=form.cleaned_data['export_format'],
-                target_person=form.cleaned_data.get('target_person'),
-            )
-
+            task = service.create_export_task(user=request.user, tree=self.tree,
+                                              export_type=form.cleaned_data['export_type'],
+                                              export_format=form.cleaned_data['export_format'],
+                                              target_person=form.cleaned_data.get('target_person'))
             try:
                 service.execute_export(task)
                 messages.success(request, 'Экспорт успешно завершён. Файл готов к скачиванию.')
@@ -603,18 +717,15 @@ class TreeExportView(LoginRequiredMixin, View):
             except Exception as e:
                 messages.error(request, f'Ошибка при экспорте: {e}')
                 return redirect('genealogy:tree_detail', pk=self.tree.pk)
-
         return render(request, self.template_name, {'form': form, 'tree': self.tree})
 
 
 class TreeExportResultView(LoginRequiredMixin, DetailView):
-    """Страница результата экспорта со ссылкой на скачивание."""
     model = ExportTask
     template_name = 'genealogy/tree_export_result.html'
     context_object_name = 'task'
 
-    def get_queryset(self):
-        return ExportTask.objects.filter(user=self.request.user)
+    def get_queryset(self): return ExportTask.objects.filter(user=self.request.user)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -623,41 +734,28 @@ class TreeExportResultView(LoginRequiredMixin, DetailView):
 
 
 class TreeImportView(LoginRequiredMixin, View):
-    """Страница загрузки файла и запуска импорта."""
     template_name = 'genealogy/tree_import.html'
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
+        if not request.user.is_authenticated: return redirect_to_login(request.get_full_path())
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, *args, **kwargs):
-        form = ImportForm(user=request.user)
-        return render(request, self.template_name, {'form': form})
+        return render(request, self.template_name, {'form': ImportForm(user=request.user)})
 
     def post(self, request, *args, **kwargs):
         form = ImportForm(request.POST, request.FILES, user=request.user)
         if form.is_valid():
             service = ImportService()
-            task = service.create_import_task(
-                user=request.user,
-                source_file=request.FILES['source_file'],
-                target_tree=form.cleaned_data.get('target_tree'),
-            )
-
+            task = service.create_import_task(user=request.user, source_file=request.FILES['source_file'],
+                                              target_tree=form.cleaned_data.get('target_tree'))
             try:
                 service.execute_import(task)
-                messages.success(
-                    request,
-                    f'Импорт успешно завершён. '
-                    f'Импортировано персон: {task.person_count}, '
-                    f'связей: {task.relationship_count}.'
-                )
-                if task.tree:
-                    return redirect('genealogy:tree_detail', pk=task.tree.pk)
-                return redirect('genealogy:tree_list')
+                messages.success(request,
+                                 f'Импорт успешно завершён. Импортировано персон: {task.person_count}, связей: {task.relationship_count}.')
+                return redirect('genealogy:tree_detail', pk=task.tree.pk) if task.tree else redirect(
+                    'genealogy:tree_list')
             except Exception as e:
                 messages.error(request, f'Ошибка при импорте: {e}')
                 return redirect('genealogy:tree_import')
-
         return render(request, self.template_name, {'form': form})

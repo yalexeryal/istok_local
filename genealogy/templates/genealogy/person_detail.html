@@ -4,132 +4,56 @@
 
 {% block content %}
 <div class="max-w-4xl mx-auto">
-    <!-- Заголовок -->
     <div class="mb-8">
         <div class="flex items-center justify-between mb-4 flex-wrap gap-4">
             <div>
-                <h1 class="text-3xl font-bold text-gray-900">
-                    {{ person.full_name_display }}
-                </h1>
+                <h1 class="text-3xl font-bold text-gray-900">{{ person.full_name_display }}</h1>
                 <p class="mt-2 text-gray-600">
-                    Дерево:
-                    <a href="{% url 'genealogy:tree_detail' tree.pk %}"
-                       class="text-blue-600 hover:text-blue-800 font-medium">
-                        {{ tree.name }}
-                    </a>
+                    Дерево: <a href="{% url 'genealogy:tree_detail' tree.pk %}" class="text-blue-600 hover:text-blue-800 font-medium">{{ tree.name }}</a>
                     · Ваша роль: {{ user_role }}
                 </p>
             </div>
             {% if can_edit %}
                 <div class="flex space-x-2 flex-wrap gap-2">
-                    <a href="{% url 'genealogy:person_update' person.pk %}"
-                       class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
-                        Редактировать
-                    </a>
-                    <a href="{% url 'genealogy:person_delete' person.pk %}"
-                       class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition font-medium">
-                        Удалить
-                    </a>
+                    <a href="{% url 'genealogy:person_update' person.pk %}" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">Редактировать</a>
+                    <a href="{% url 'genealogy:person_delete' person.pk %}" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition font-medium">Удалить</a>
                 </div>
             {% endif %}
         </div>
     </div>
 
-    <!-- Основная информация -->
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
         <h2 class="text-xl font-semibold text-gray-900 mb-4">Основная информация</h2>
-
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <!-- Фото -->
             <div class="flex justify-center items-start">
                 {% if person.photo %}
-                    <img src="{{ person.photo.url }}"
-                         alt="{{ person.full_name_display }}"
-                         class="max-w-xs rounded-lg shadow-md">
+                    <img src="{{ person.photo.url }}" alt="{{ person.full_name_display }}" class="max-w-xs rounded-lg shadow-md">
                 {% else %}
-                    <div class="w-48 h-48 bg-gray-100 rounded-lg flex items-center justify-center">
-                        <span class="text-6xl text-gray-400">👤</span>
-                    </div>
+                    <div class="w-48 h-48 bg-gray-100 rounded-lg flex items-center justify-center"><span class="text-6xl text-gray-400">👤</span></div>
                 {% endif %}
             </div>
-
-            <!-- Данные -->
             <div class="space-y-3">
-                <div>
-                    <div class="text-sm text-gray-500">Пол</div>
-                    <div class="text-base font-medium">{{ person.get_gender_display }}</div>
-                </div>
-
+                <div><div class="text-sm text-gray-500">Пол</div><div class="text-base font-medium">{{ person.get_gender_display }}</div></div>
                 {% if person.birth_date %}
-                    <div>
-                        <div class="text-sm text-gray-500">Дата рождения</div>
-                        <div class="text-base font-medium">
-                            {{ person.birth_date|date:"d.m.Y" }}
-                            {% if person.is_birth_date_approx %}
-                                <span class="text-sm text-gray-500">(приблизительно)</span>
-                            {% endif %}
-                        </div>
-                    </div>
+                    <div><div class="text-sm text-gray-500">Дата рождения</div><div class="text-base font-medium">{{ person.birth_date|date:"d E Y" }}{% if person.is_birth_date_approx %} <span class="text-sm text-gray-500">(приблизительно)</span>{% endif %}</div></div>
                 {% endif %}
-
                 {% if person.birth_place %}
-                    <div>
-                        <div class="text-sm text-gray-500">Место рождения</div>
-                        <div class="text-base font-medium">{{ person.birth_place }}</div>
-                    </div>
+                    <div><div class="text-sm text-gray-500">Место рождения</div><div class="text-base font-medium">{{ person.birth_place }}</div></div>
                 {% endif %}
-
                 {% if person.death_date %}
-                    <div>
-                        <div class="text-sm text-gray-500">Дата смерти</div>
-                        <div class="text-base font-medium">
-                            {{ person.death_date|date:"d.m.Y" }}
-                            {% if person.is_death_date_approx %}
-                                <span class="text-sm text-gray-500">(приблизительно)</span>
-                            {% endif %}
-                        </div>
-                    </div>
+                    <div><div class="text-sm text-gray-500">Дата смерти</div><div class="text-base font-medium">{{ person.death_date|date:"d E Y" }}{% if person.is_death_date_approx %} <span class="text-sm text-gray-500">(приблизительно)</span>{% endif %}</div></div>
                 {% endif %}
-
-                {% if person.death_place %}
-                    <div>
-                        <div class="text-sm text-gray-500">Место смерти</div>
-                        <div class="text-base font-medium">{{ person.death_place }}</div>
-                    </div>
-                {% endif %}
-
-                {% if person.burial_place %}
-                    <div>
-                        <div class="text-sm text-gray-500">Место захоронения</div>
-                        <div class="text-base font-medium">{{ person.burial_place }}</div>
-                    </div>
-                {% endif %}
-
                 {% if person.culture %}
-                    <div>
-                        <div class="text-sm text-gray-500">Культура / Национальность</div>
-                        <div class="text-base font-medium">{{ person.culture }}</div>
-                    </div>
+                    <div><div class="text-sm text-gray-500">Культура / Национальность</div><div class="text-base font-medium">{{ person.culture }}</div></div>
                 {% endif %}
-
                 <div>
                     <div class="text-sm text-gray-500">Возраст</div>
                     <div class="text-base font-medium">
-                        {% if person.age %}
-                            {{ person.age }}
-                            {% if person.is_alive %}
-                                <span class="text-green-600">(жив(а))</span>
-                            {% else %}
-                                <span class="text-gray-500">(†)</span>
-                            {% endif %}
-                        {% else %}
-                            —
-                        {% endif %}
+                        {% if person.age %}{{ person.age }}{% if person.is_alive %} <span class="text-green-600">(жив(а))</span>{% else %} <span class="text-gray-500">(†)</span>{% endif %}{% else %}—{% endif %}
                     </div>
                 </div>
             </div>
         </div>
-
         {% if person.notes %}
             <div class="mt-6 pt-6 border-t border-gray-200">
                 <div class="text-sm text-gray-500 mb-2">Заметки</div>
@@ -138,140 +62,100 @@
         {% endif %}
     </div>
 
-    <!-- Родственники -->
+    <!-- БЛИЖАЙШИЕ РОДСТВЕННИКИ -->
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <h2 class="text-xl font-semibold text-gray-900 mb-4">Родственники</h2>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <!-- Родители -->
-            <div>
-                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">
-                    Родители
-                </h3>
-                {% if parents %}
-                    <ul class="space-y-2">
-                        {% for parent in parents %}
-                            <li>
-                                <a href="{% url 'genealogy:person_detail' parent.pk %}"
-                                   class="text-blue-600 hover:text-blue-800">
-                                    {{ parent.full_name_display }}
-                                </a>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% else %}
-                    <p class="text-sm text-gray-500 italic">Не указаны</p>
-                {% endif %}
-            </div>
-
-            <!-- Братья/сестры -->
-            <div>
-                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">
-                    Братья и сёстры
-                </h3>
-                {% if siblings %}
-                    <ul class="space-y-2">
-                        {% for sibling in siblings %}
-                            <li>
-                                <a href="{% url 'genealogy:person_detail' sibling.pk %}"
-                                   class="text-blue-600 hover:text-blue-800">
-                                    {{ sibling.full_name_display }}
-                                </a>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% else %}
-                    <p class="text-sm text-gray-500 italic">Не указаны</p>
-                {% endif %}
-            </div>
-
-            <!-- Дети -->
-            <div>
-                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">
-                    Дети
-                </h3>
-                {% if children %}
-                    <ul class="space-y-2">
-                        {% for child in children %}
-                            <li>
-                                <a href="{% url 'genealogy:person_detail' child.pk %}"
-                                   class="text-blue-600 hover:text-blue-800">
-                                    {{ child.full_name_display }}
-                                </a>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% else %}
-                    <p class="text-sm text-gray-500 italic">Не указаны</p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    <!-- События жизни -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div class="flex items-center justify-between mb-4">
-            <h2 class="text-xl font-semibold text-gray-900">События жизни</h2>
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <h2 class="text-xl font-semibold text-gray-900">Ближайшие родственники</h2>
             {% if can_edit %}
-                <a href="{% url 'genealogy:life_event_create' person.pk %}"
-                   class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium text-sm">
-                    + Добавить событие
-                </a>
+                <div class="flex flex-wrap gap-2">
+                    <a href="{% url 'genealogy:person_create' tree.pk %}?parent1_id={{ person.pk }}&relation=son"
+                       class="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition text-sm font-medium">
+                        + Сын
+                    </a>
+                    <a href="{% url 'genealogy:person_create' tree.pk %}?parent1_id={{ person.pk }}&relation=daughter"
+                       class="px-3 py-1.5 bg-pink-50 text-pink-700 rounded-md hover:bg-pink-100 transition text-sm font-medium">
+                        + Дочь
+                    </a>
+                    <a href="{% url 'genealogy:person_create' tree.pk %}?spouse_of={{ person.pk }}"
+                       class="px-3 py-1.5 bg-purple-50 text-purple-700 rounded-md hover:bg-purple-100 transition text-sm font-medium">
+                        + Супруг(а)
+                    </a>
+                </div>
             {% endif %}
         </div>
 
-        {% if life_events %}
+        {% if close_relatives %}
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {% for rel in close_relatives %}
+                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 hover:border-blue-300 transition">
+                    <a href="{% url 'genealogy:person_detail' rel.person.pk %}" class="text-lg font-semibold text-blue-600 hover:text-blue-800 block mb-2">
+                        {{ rel.person.full_name_display }}
+                    </a>
+                    <div class="text-sm text-gray-600 mb-3">
+                        {% if rel.person.birth_date and rel.person.death_date %}
+                            {{ rel.person.birth_date|date:"d M Y" }} - {{ rel.person.death_date|date:"d M Y" }}
+                        {% elif rel.person.birth_date %}
+                            с {{ rel.person.birth_date|date:"d M Y" }}
+                        {% elif rel.person.death_date %}
+                            до {{ rel.person.death_date|date:"d M Y" }}
+                        {% else %}
+                            Даты не указаны
+                        {% endif %}
+                    </div>
+                    <div class="text-sm font-medium text-gray-800 bg-gray-200 inline-block px-3 py-1 rounded-full">
+                        {{ rel.relation }}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="text-gray-500 italic">Ближайшие родственники не указаны</p>
+        {% endif %}
+    </div>
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-semibold text-gray-900">Хронология жизни</h2>
+            {% if can_edit %}
+                <a href="{% url 'genealogy:life_event_create' person.pk %}" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium text-sm">+ Добавить событие</a>
+            {% endif %}
+        </div>
+
+        {% if combined_timeline %}
             <div class="space-y-4">
-                {% for event in life_events %}
-                    <div class="border-l-4 border-blue-500 pl-4 py-2 relative">
+                {% for item in combined_timeline %}
+                    <div class="border-l-4 {% if item.type == 'own' %}border-blue-500{% else %}border-purple-500{% endif %} pl-4 py-2 relative">
                         <div class="flex items-start justify-between">
                             <div class="flex-1">
                                 <div class="font-medium text-gray-900">
-                                    {{ event.get_event_type_display }}
+                                    {{ item.title }}
+                                    {% if item.type == 'relative' %}
+                                        <span class="ml-2 text-xs font-normal text-purple-600 bg-purple-50 px-2 py-0.5 rounded">Событие родственника</span>
+                                    {% endif %}
                                 </div>
-                                {% if event.event_date %}
-                                    <div class="text-sm text-gray-500">
-                                        {{ event.event_date|date:"d.m.Y" }}
-                                        {% if event.is_date_approx %}(приблизительно){% endif %}
-                                        {% if event.end_date %}
-                                            — {{ event.end_date|date:"d.m.Y" }}
-                                        {% endif %}
-                                    </div>
-                                {% elif event.end_date %}
-                                    <div class="text-sm text-gray-500">
-                                        до {{ event.end_date|date:"d.m.Y" }}
-                                    </div>
+                                {% if item.date %}
+                                    <div class="text-sm text-gray-500">{{ item.date|date:"d E Y" }}</div>
                                 {% endif %}
-                                {% if event.location %}
+                                {% if item.location %}
+                                    <div class="text-sm text-gray-600 mt-1">📍 {{ item.location }}</div>
+                                {% endif %}
+                                {% if item.description %}
+                                    <div class="text-sm text-gray-700 mt-1">{{ item.description }}</div>
+                                {% endif %}
+                                {% if item.related_person and item.type == 'own' %}
                                     <div class="text-sm text-gray-600 mt-1">
-                                        📍 {{ event.location }}
+                                        👤 Связана с: <a href="{% url 'genealogy:person_detail' item.related_person.pk %}" class="text-blue-600 hover:text-blue-800">{{ item.related_person.full_name_display }}</a>
                                     </div>
-                                {% endif %}
-                                {% if event.description %}
-                                    <div class="text-sm text-gray-700 mt-1">
-                                        {{ event.description }}
-                                    </div>
-                                {% endif %}
-                                {% if event.related_person %}
+                                {% elif item.related_person and item.type == 'relative' %}
                                     <div class="text-sm text-gray-600 mt-1">
-                                        👤 Связана с:
-                                        <a href="{% url 'genealogy:person_detail' event.related_person.pk %}"
-                                           class="text-blue-600 hover:text-blue-800">
-                                            {{ event.related_person.full_name_display }}
-                                        </a>
+                                        👤 Персона: <a href="{% url 'genealogy:person_detail' item.related_person.pk %}" class="text-blue-600 hover:text-blue-800">{{ item.related_person.full_name_display }}</a>
                                     </div>
                                 {% endif %}
                             </div>
-                            {% if can_edit %}
+                            {% if can_edit and item.type == 'own' and item.event_obj %}
                                 <div class="flex space-x-2 ml-4">
-                                    <a href="{% url 'genealogy:life_event_update' event.pk %}"
-                                       class="text-blue-600 hover:text-blue-800 text-sm">
-                                        Изменить
-                                    </a>
-                                    <a href="{% url 'genealogy:life_event_delete' event.pk %}"
-                                       class="text-red-600 hover:text-red-800 text-sm">
-                                        Удалить
-                                    </a>
+                                    <a href="{% url 'genealogy:life_event_update' item.event_obj.pk %}" class="text-blue-600 hover:text-blue-800 text-sm">Изменить</a>
+                                    <a href="{% url 'genealogy:life_event_delete' item.event_obj.pk %}" class="text-red-600 hover:text-red-800 text-sm">Удалить</a>
                                 </div>
                             {% endif %}
                         </div>
@@ -283,12 +167,8 @@
         {% endif %}
     </div>
 
-    <!-- Кнопка назад -->
     <div class="mt-6">
-        <a href="{% url 'genealogy:tree_detail' tree.pk %}"
-           class="text-gray-600 hover:text-gray-900 font-medium">
-            ← Назад к дереву
-        </a>
+        <a href="{% url 'genealogy:tree_detail' tree.pk %}" class="text-gray-600 hover:text-gray-900 font-medium">← Назад к дереву</a>
     </div>
 </div>
 {% endblock %}

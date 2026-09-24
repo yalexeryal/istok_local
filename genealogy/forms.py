@@ -1,12 +1,5 @@
 """
 Django Forms для приложения genealogy.
-
-Включает:
-- PersonForm — форма создания/редактирования персоны
-- RelationshipForm — форма создания родственной связи
-- LifeEventForm — форма создания/редактирования события жизни
-- ExportForm — форма настройки экспорта
-- ImportForm — форма загрузки файла для импорта
 """
 from django import forms
 from django.core.exceptions import ValidationError
@@ -25,16 +18,30 @@ from .models import (
 )
 
 
-class PersonForm(forms.ModelForm):
-    """Форма создания/редактирования персоны."""
+class TreeCreateForm(forms.ModelForm):
+    """Форма создания нового дерева."""
 
     class Meta:
+        model = Tree
+        fields = ['name', 'description', 'is_public']
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
+                'placeholder': 'Например: Семья Ивановых'}),
+            'description': forms.Textarea(attrs={
+                'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
+                'rows': 3, 'placeholder': 'Краткое описание дерева'}),
+            'is_public': forms.CheckboxInput(
+                attrs={'class': 'w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
+        }
+
+
+class PersonForm(forms.ModelForm):
+    class Meta:
         model = Person
-        fields = [
-            'first_name', 'middle_name', 'last_name', 'maiden_name', 'gender',
-            'birth_date', 'is_birth_date_approx', 'death_date', 'is_death_date_approx',
-            'birth_place', 'death_place', 'burial_place', 'culture', 'photo', 'notes',
-        ]
+        fields = ['first_name', 'middle_name', 'last_name', 'maiden_name', 'gender', 'birth_date',
+                  'is_birth_date_approx', 'death_date', 'is_death_date_approx', 'birth_place', 'death_place',
+                  'burial_place', 'culture', 'photo', 'notes']
         widgets = {
             'first_name': forms.TextInput(attrs={
                 'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
@@ -91,18 +98,11 @@ class PersonForm(forms.ModelForm):
         death_date = cleaned_data.get('death_date')
 
         if first_name and self.tree:
-            queryset = Person.objects.filter(
-                first_name=first_name,
-                last_name=last_name or '',
-                tree=self.tree
-            )
+            queryset = Person.objects.filter(first_name=first_name, last_name=last_name or '', tree=self.tree)
             if self.instance.pk:
                 queryset = queryset.exclude(pk=self.instance.pk)
             if queryset.exists():
-                raise ValidationError(
-                    f'В этом дереве уже есть персона с именем '
-                    f'"{first_name} {last_name or ""}".'
-                )
+                raise ValidationError(f'В этом дереве уже есть персона с именем "{first_name} {last_name or ""}".')
 
         if birth_date and death_date and death_date < birth_date:
             raise ValidationError({'death_date': 'Дата смерти не может быть раньше даты рождения.'})
@@ -124,8 +124,6 @@ class PersonForm(forms.ModelForm):
 
 
 class RelationshipForm(forms.ModelForm):
-    """Форма создания родственной связи между двумя персонами."""
-
     class Meta:
         model = Relationship
         fields = ['from_person', 'to_person', 'relationship_type', 'start_date', 'end_date', 'is_current',
@@ -171,19 +169,13 @@ class RelationshipForm(forms.ModelForm):
             if from_person == to_person:
                 raise ValidationError('Нельзя создать связь персоны с самой собой.')
             if relationship_type:
-                queryset = Relationship.objects.filter(
-                    from_person=from_person,
-                    to_person=to_person,
-                    relationship_type=relationship_type
-                )
+                queryset = Relationship.objects.filter(from_person=from_person, to_person=to_person,
+                                                       relationship_type=relationship_type)
                 if self.instance.pk:
                     queryset = queryset.exclude(pk=self.instance.pk)
                 if queryset.exists():
                     raise ValidationError(
-                        f'Такая связь уже существует между '
-                        f'"{from_person.full_name_display}" и '
-                        f'"{to_person.full_name_display}".'
-                    )
+                        f'Такая связь уже существует между "{from_person.full_name_display}" и "{to_person.full_name_display}".')
         return cleaned_data
 
     def save(self, commit=True):
@@ -198,14 +190,9 @@ class RelationshipForm(forms.ModelForm):
 
 
 class LifeEventForm(forms.ModelForm):
-    """Форма создания/редактирования события жизни."""
-
     class Meta:
         model = LifeEvent
-        fields = [
-            'event_type', 'event_date', 'end_date', 'is_date_approx',
-            'location', 'description', 'related_person',
-        ]
+        fields = ['event_type', 'event_date', 'end_date', 'is_date_approx', 'location', 'description', 'related_person']
         widgets = {
             'event_type': forms.Select(attrs={
                 'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'}),
@@ -226,35 +213,19 @@ class LifeEventForm(forms.ModelForm):
         }
 
     def __init__(self, *args, person=None, tree=None, user=None, **kwargs):
-        """
-        Инициализация формы.
-
-        Args:
-            person: Персона, к которой относится событие
-            tree: Дерево (для ограничения выбора related_person)
-            user: Текущий пользователь
-        """
         super().__init__(*args, **kwargs)
         self.person = person
-        self.tree = tree
+        self.tree = tree or (person.tree if person else None)
         self.user = user
 
-        # Определяем дерево из персоны, если не передано явно
-        if person and not tree:
-            self.tree = person.tree
-
-        # Ограничиваем выбор связанной персоны только тем же деревом
         if self.tree:
-            self.fields['related_person'].queryset = Person.objects.filter(
-                tree=self.tree
-            ).exclude(pk=person.pk if person else None).order_by('last_name', 'first_name')
+            exclude_pk = person.pk if person else None
+            self.fields['related_person'].queryset = Person.objects.filter(tree=self.tree).exclude(
+                pk=exclude_pk).order_by('last_name', 'first_name')
         else:
             self.fields['related_person'].queryset = Person.objects.none()
 
-        # Делаем related_person необязательным
         self.fields['related_person'].required = False
-
-        # Помечаем обязательные поля
         self.fields['event_type'].required = True
 
     def clean(self):
@@ -263,69 +234,62 @@ class LifeEventForm(forms.ModelForm):
         end_date = cleaned_data.get('end_date')
         related_person = cleaned_data.get('related_person')
 
-        # Дата окончания не может быть раньше даты начала
         if event_date and end_date and end_date < event_date:
-            raise ValidationError({
-                'end_date': 'Дата окончания не может быть раньше даты начала.'
-            })
+            raise ValidationError({'end_date': 'Дата окончания не может быть раньше даты начала.'})
 
-        # Связанная персона должна быть из того же дерева
         if related_person and self.person and related_person.tree != self.person.tree:
-            raise ValidationError({
-                'related_person': 'Связанная персона должна быть из того же дерева.'
-            })
+            raise ValidationError({'related_person': 'Связанная персона должна быть из того же дерева.'})
 
-        # Нельзя связать персону саму с собой
         if related_person and self.person and related_person == self.person:
-            raise ValidationError({
-                'related_person': 'Нельзя связать персону саму с собой.'
-            })
+            raise ValidationError({'related_person': 'Нельзя связать персону саму с собой.'})
 
         return cleaned_data
 
     def save(self, commit=True):
         event = super().save(commit=False)
-
-        # Устанавливаем персону для новых событий
         if self.person and not event.pk:
             event.person = self.person
-
-        # Устанавливаем пользователя, который создал/изменил событие
         if self.user:
             event.created_by = self.user
-
-        # Увеличиваем версию синхронизации при обновлении
         if event.pk:
             event.sync_version += 1
 
         if commit:
             event.save()
+            # АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ЗЕРКАЛЬНОГО СОБЫТИЯ ДЛЯ БРАКА/РАЗВОДА
+            if event.event_type in [EventTypeEnum.MARRIAGE, EventTypeEnum.DIVORCE] and event.related_person:
+                reverse_exists = LifeEvent.objects.filter(
+                    person=event.related_person,
+                    event_type=event.event_type,
+                    event_date=event.event_date,
+                    related_person=event.person
+                ).exists()
 
+                if not reverse_exists:
+                    LifeEvent.objects.create(
+                        person=event.related_person,
+                        event_type=event.event_type,
+                        event_date=event.event_date,
+                        end_date=event.end_date,
+                        is_date_approx=event.is_date_approx,
+                        location=event.location,
+                        description=event.description,
+                        related_person=event.person,
+                        created_by=event.created_by
+                    )
         return event
 
 
 class ExportForm(forms.Form):
-    """Форма настройки экспорта дерева."""
-    export_type = forms.ChoiceField(
-        choices=ExportTypeEnum.choices,
-        label='Тип экспорта',
-        widget=forms.Select(attrs={
-            'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'})
-    )
-    export_format = forms.ChoiceField(
-        choices=ExportFormatEnum.choices,
-        label='Формат файла',
-        initial=ExportFormatEnum.JSON_ZIP,
-        widget=forms.Select(attrs={
-            'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'})
-    )
-    target_person = forms.ModelChoiceField(
-        queryset=Person.objects.none(),
-        label='Целевая персона (для экспорта родственников)',
-        required=False,
-        widget=forms.Select(attrs={
-            'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'})
-    )
+    export_type = forms.ChoiceField(choices=ExportTypeEnum.choices, label='Тип экспорта', widget=forms.Select(attrs={
+        'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'}))
+    export_format = forms.ChoiceField(choices=ExportFormatEnum.choices, label='Формат файла',
+                                      initial=ExportFormatEnum.JSON_ZIP, widget=forms.Select(attrs={
+            'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'}))
+    target_person = forms.ModelChoiceField(queryset=Person.objects.none(),
+                                           label='Целевая персона (для экспорта родственников)', required=False,
+                                           widget=forms.Select(attrs={
+                                               'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'}))
 
     def __init__(self, *args, tree=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -335,44 +299,28 @@ class ExportForm(forms.Form):
 
     def clean(self):
         cleaned_data = super().clean()
-        export_type = cleaned_data.get('export_type')
-        target_person = cleaned_data.get('target_person')
-
-        if export_type == ExportTypeEnum.RELATIVE and not target_person:
-            raise ValidationError({
-                'target_person': 'Для экспорта родственников необходимо выбрать целевую персону.'
-            })
-
+        if cleaned_data.get('export_type') == ExportTypeEnum.RELATIVE and not cleaned_data.get('target_person'):
+            raise ValidationError({'target_person': 'Для экспорта родственников необходимо выбрать целевую персону.'})
         return cleaned_data
 
 
 class ImportForm(forms.Form):
-    """Форма загрузки файла для импорта."""
-    source_file = forms.FileField(
-        label='Файл для импорта (.zip)',
-        widget=forms.FileInput(attrs={
-            'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
-            'accept': '.zip'
-        })
-    )
-    target_tree = forms.ModelChoiceField(
-        queryset=Tree.objects.none(),
-        label='Импортировать в существующее дерево (опционально)',
-        required=False,
-        help_text='Если не выбрано, будет создано новое дерево.',
-        widget=forms.Select(attrs={
-            'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'})
-    )
+    source_file = forms.FileField(label='Файл для импорта (.zip)', widget=forms.FileInput(attrs={
+        'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
+        'accept': '.zip'}))
+    target_tree = forms.ModelChoiceField(queryset=Tree.objects.none(),
+                                         label='Импортировать в существующее дерево (опционально)', required=False,
+                                         help_text='Если не выбрано, будет создано новое дерево.', widget=forms.Select(
+            attrs={
+                'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'}))
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         if user:
             from django.db.models import Q
             self.fields['target_tree'].queryset = Tree.objects.filter(
-                Q(collaborators__user=user, collaborators__role__in=[
-                    CollaboratorRoleEnum.OWNER,
-                    CollaboratorRoleEnum.EDITOR
-                ]) | Q(is_public=True)
+                Q(collaborators__user=user,
+                  collaborators__role__in=[CollaboratorRoleEnum.OWNER, CollaboratorRoleEnum.EDITOR]) | Q(is_public=True)
             ).distinct()
 
     def clean_source_file(self):
@@ -380,6 +328,6 @@ class ImportForm(forms.Form):
         if file:
             if not file.name.endswith('.zip'):
                 raise ValidationError('Поддерживаются только файлы с расширением .zip')
-            if file.size > 50 * 1024 * 1024:  # 50 MB
+            if file.size > 50 * 1024 * 1024:
                 raise ValidationError('Размер файла не должен превышать 50 МБ')
         return file

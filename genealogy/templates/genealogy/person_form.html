@@ -4,28 +4,58 @@
 
 {% block content %}
 <div class="max-w-3xl mx-auto">
-    <!-- Заголовок -->
     <div class="mb-8">
         <div class="flex items-center justify-between mb-4">
-            <h1 class="text-3xl font-bold text-gray-900">
-                {{ action }} персоны
-            </h1>
-            <a href="{% url 'genealogy:tree_detail' tree.pk %}" 
-               class="text-gray-600 hover:text-gray-900 font-medium">
-                ← Назад к дереву
-            </a>
+            <h1 class="text-3xl font-bold text-gray-900">{{ action }}</h1>
+            {% if form_mode == 'child' %}
+                <a href="{% url 'genealogy:person_detail' parent1.pk %}" class="text-gray-600 hover:text-gray-900 font-medium">← Назад к {{ parent1.full_name_display }}</a>
+            {% elif form_mode == 'spouse' %}
+                <a href="{% url 'genealogy:person_detail' spouse_of.pk %}" class="text-gray-600 hover:text-gray-900 font-medium">← Назад к {{ spouse_of.full_name_display }}</a>
+            {% elif form_mode == 'parent' %}
+                <a href="{% url 'genealogy:person_detail' child.pk %}" class="text-gray-600 hover:text-gray-900 font-medium">← Назад к {{ child.full_name_display }}</a>
+            {% else %}
+                <a href="{% url 'genealogy:tree_detail' tree.pk %}" class="text-gray-600 hover:text-gray-900 font-medium">← Назад к дереву</a>
+            {% endif %}
         </div>
-        <p class="text-gray-600">
-            Дерево: <strong>{{ tree.name }}</strong>
-        </p>
+        <p class="text-gray-600">Дерево: <strong>{{ tree.name }}</strong></p>
+
+        {% if form_mode == 'child' %}
+            <div class="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-md">
+                <p class="text-sm text-blue-900">
+                    <strong>Родитель 1:</strong> {{ parent1.full_name_display }}
+                    {% if parent2 %}
+                        <br><strong>Родитель 2:</strong> {{ parent2.full_name_display }}
+                    {% endif %}
+                </p>
+                <p class="text-xs text-blue-700 mt-2">
+                    Все поля ниже можно редактировать. Связи с родителями и события установятся автоматически.
+                </p>
+            </div>
+        {% elif form_mode == 'spouse' %}
+            <div class="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-md">
+                <p class="text-sm text-purple-900">
+                    <strong>Супруг(а):</strong> {{ spouse_of.full_name_display }}
+                </p>
+                <p class="text-xs text-purple-700 mt-2">
+                    Связь "Супруг(а)" установится автоматически после сохранения.
+                </p>
+            </div>
+        {% elif form_mode == 'parent' %}
+            <div class="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
+                <p class="text-sm text-green-900">
+                    <strong>Ребенок:</strong> {{ child.full_name_display }}
+                </p>
+                <p class="text-xs text-green-700 mt-2">
+                    Связь "Родитель" установится автоматически после сохранения.
+                </p>
+            </div>
+        {% endif %}
     </div>
-    
-    <!-- Форма -->
+
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
         <form method="post" enctype="multipart/form-data" class="space-y-6">
             {% csrf_token %}
-            
-            <!-- Общие ошибки формы -->
+
             {% if form.non_field_errors %}
                 <div class="p-4 bg-red-50 border border-red-200 rounded-md">
                     {% for error in form.non_field_errors %}
@@ -33,127 +63,65 @@
                     {% endfor %}
                 </div>
             {% endif %}
-            
-            <!-- Основные данные -->
+
             <div>
-                <h2 class="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
-                    Основные данные
-                </h2>
+                <h2 class="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">Основные данные</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- Фамилия -->
                     <div>
-                        <label for="{{ form.last_name.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Фамилия
-                        </label>
+                        <label for="{{ form.last_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Фамилия</label>
                         {{ form.last_name }}
-                        {% if form.last_name.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.last_name.errors.0 }}</p>
-                        {% endif %}
+                        {% if form.last_name.errors %}<p class="mt-1 text-sm text-red-600">{{ form.last_name.errors.0 }}</p>{% endif %}
                     </div>
-                    
-                    <!-- Имя -->
                     <div>
-                        <label for="{{ form.first_name.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Имя <span class="text-red-500">*</span>
-                        </label>
+                        <label for="{{ form.first_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Имя <span class="text-red-500">*</span></label>
                         {{ form.first_name }}
-                        {% if form.first_name.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.first_name.errors.0 }}</p>
-                        {% endif %}
+                        {% if form.first_name.errors %}<p class="mt-1 text-sm text-red-600">{{ form.first_name.errors.0 }}</p>{% endif %}
                     </div>
-                    
-                    <!-- Отчество -->
                     <div>
-                        <label for="{{ form.middle_name.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Отчество
-                        </label>
+                        <label for="{{ form.middle_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Отчество</label>
                         {{ form.middle_name }}
-                        {% if form.middle_name.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.middle_name.errors.0 }}</p>
+                        {% if form.middle_name.errors %}<p class="mt-1 text-sm text-red-600">{{ form.middle_name.errors.0 }}</p>{% endif %}
+                        {% if form_mode == 'child' %}
+                            <p class="mt-1 text-xs text-gray-500">Автоматически сгенерировано от имени отца. Можно изменить.</p>
                         {% endif %}
                     </div>
-                    
-                    <!-- Девичья фамилия -->
                     <div>
-                        <label for="{{ form.maiden_name.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Девичья фамилия
-                        </label>
+                        <label for="{{ form.maiden_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Девичья фамилия</label>
                         {{ form.maiden_name }}
-                        {% if form.maiden_name.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.maiden_name.errors.0 }}</p>
-                        {% endif %}
-                        <p class="mt-1 text-xs text-gray-500">Только для женщин</p>
+                        {% if form.maiden_name.errors %}<p class="mt-1 text-sm text-red-600">{{ form.maiden_name.errors.0 }}</p>{% endif %}
                     </div>
-                    
-                    <!-- Пол -->
                     <div>
-                        <label for="{{ form.gender.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Пол <span class="text-red-500">*</span>
-                        </label>
+                        <label for="{{ form.gender.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Пол <span class="text-red-500">*</span></label>
                         {{ form.gender }}
-                        {% if form.gender.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.gender.errors.0 }}</p>
-                        {% endif %}
+                        {% if form.gender.errors %}<p class="mt-1 text-sm text-red-600">{{ form.gender.errors.0 }}</p>{% endif %}
                     </div>
-                    
-                    <!-- Культура -->
                     <div>
-                        <label for="{{ form.culture.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Культура / Национальность
-                        </label>
+                        <label for="{{ form.culture.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Культура / Национальность</label>
                         {{ form.culture }}
-                        {% if form.culture.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.culture.errors.0 }}</p>
-                        {% endif %}
+                        {% if form.culture.errors %}<p class="mt-1 text-sm text-red-600">{{ form.culture.errors.0 }}</p>{% endif %}
                     </div>
                 </div>
             </div>
-            
-            <!-- Даты жизни -->
+
             <div>
-                <h2 class="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
-                    Даты жизни
-                </h2>
+                <h2 class="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">Даты жизни</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- Дата рождения -->
                     <div>
-                        <label for="{{ form.birth_date.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Дата рождения
-                        </label>
+                        <label for="{{ form.birth_date.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Дата рождения</label>
                         {{ form.birth_date }}
-                        {% if form.birth_date.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.birth_date.errors.0 }}</p>
-                        {% endif %}
+                        {% if form.birth_date.errors %}<p class="mt-1 text-sm text-red-600">{{ form.birth_date.errors.0 }}</p>{% endif %}
                     </div>
-                    
-                    <!-- Приблизительная дата рождения -->
                     <div class="flex items-center pt-6">
                         <label class="inline-flex items-center">
                             {{ form.is_birth_date_approx }}
                             <span class="ml-2 text-sm text-gray-700">Приблизительная дата</span>
                         </label>
                     </div>
-                    
-                    <!-- Дата смерти -->
                     <div>
-                        <label for="{{ form.death_date.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Дата смерти
-                        </label>
+                        <label for="{{ form.death_date.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Дата смерти</label>
                         {{ form.death_date }}
-                        {% if form.death_date.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.death_date.errors.0 }}</p>
-                        {% endif %}
+                        {% if form.death_date.errors %}<p class="mt-1 text-sm text-red-600">{{ form.death_date.errors.0 }}</p>{% endif %}
                     </div>
-                    
-                    <!-- Приблизительная дата смерти -->
                     <div class="flex items-center pt-6">
                         <label class="inline-flex items-center">
                             {{ form.is_death_date_approx }}
@@ -162,98 +130,60 @@
                     </div>
                 </div>
             </div>
-            
-            <!-- Места -->
+
             <div>
-                <h2 class="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
-                    Места
-                </h2>
+                <h2 class="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">Места</h2>
                 <div class="space-y-4">
-                    <!-- Место рождения -->
                     <div>
-                        <label for="{{ form.birth_place.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Место рождения
-                        </label>
+                        <label for="{{ form.birth_place.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Место рождения</label>
                         {{ form.birth_place }}
-                        {% if form.birth_place.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.birth_place.errors.0 }}</p>
-                        {% endif %}
+                        {% if form.birth_place.errors %}<p class="mt-1 text-sm text-red-600">{{ form.birth_place.errors.0 }}</p>{% endif %}
                     </div>
-                    
-                    <!-- Место смерти -->
                     <div>
-                        <label for="{{ form.death_place.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Место смерти
-                        </label>
+                        <label for="{{ form.death_place.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Место смерти</label>
                         {{ form.death_place }}
-                        {% if form.death_place.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.death_place.errors.0 }}</p>
-                        {% endif %}
+                        {% if form.death_place.errors %}<p class="mt-1 text-sm text-red-600">{{ form.death_place.errors.0 }}</p>{% endif %}
                     </div>
-                    
-                    <!-- Место захоронения -->
                     <div>
-                        <label for="{{ form.burial_place.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Место захоронения
-                        </label>
+                        <label for="{{ form.burial_place.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Место захоронения</label>
                         {{ form.burial_place }}
-                        {% if form.burial_place.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.burial_place.errors.0 }}</p>
-                        {% endif %}
+                        {% if form.burial_place.errors %}<p class="mt-1 text-sm text-red-600">{{ form.burial_place.errors.0 }}</p>{% endif %}
                     </div>
                 </div>
             </div>
-            
-            <!-- Фото и заметки -->
+
             <div>
-                <h2 class="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
-                    Дополнительно
-                </h2>
+                <h2 class="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">Дополнительно</h2>
                 <div class="space-y-4">
-                    <!-- Фото -->
                     <div>
-                        <label for="{{ form.photo.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Фотография
-                        </label>
+                        <label for="{{ form.photo.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Фотография</label>
                         {{ form.photo }}
-                        {% if form.photo.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.photo.errors.0 }}</p>
-                        {% endif %}
+                        {% if form.photo.errors %}<p class="mt-1 text-sm text-red-600">{{ form.photo.errors.0 }}</p>{% endif %}
                         {% if form.instance.photo %}
                             <div class="mt-2">
-                                <img src="{{ form.instance.photo.url }}" 
-                                     alt="Текущее фото" 
-                                     class="h-24 w-24 object-cover rounded border">
+                                <img src="{{ form.instance.photo.url }}" alt="Текущее фото" class="h-24 w-24 object-cover rounded border">
                             </div>
                         {% endif %}
                     </div>
-                    
-                    <!-- Заметки -->
                     <div>
-                        <label for="{{ form.notes.id_for_label }}" 
-                               class="block text-sm font-medium text-gray-700 mb-2">
-                            Заметки
-                        </label>
+                        <label for="{{ form.notes.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">Заметки</label>
                         {{ form.notes }}
-                        {% if form.notes.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.notes.errors.0 }}</p>
-                        {% endif %}
+                        {% if form.notes.errors %}<p class="mt-1 text-sm text-red-600">{{ form.notes.errors.0 }}</p>{% endif %}
                     </div>
                 </div>
             </div>
-            
-            <!-- Кнопки -->
+
             <div class="flex justify-end space-x-3 pt-6 border-t border-gray-200">
-                <a href="{% url 'genealogy:tree_detail' tree.pk %}" 
-                   class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">
-                    Отмена
-                </a>
-                <button type="submit" 
-                        class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
+                {% if form_mode == 'child' %}
+                    <a href="{% url 'genealogy:person_detail' parent1.pk %}" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">Отмена</a>
+                {% elif form_mode == 'spouse' %}
+                    <a href="{% url 'genealogy:person_detail' spouse_of.pk %}" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">Отмена</a>
+                {% elif form_mode == 'parent' %}
+                    <a href="{% url 'genealogy:person_detail' child.pk %}" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">Отмена</a>
+                {% else %}
+                    <a href="{% url 'genealogy:tree_detail' tree.pk %}" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">Отмена</a>
+                {% endif %}
+                <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
                     {% if object %}Сохранить изменения{% else %}Создать персону{% endif %}
                 </button>
             </div>
