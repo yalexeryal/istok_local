@@ -24,11 +24,13 @@ from django.views.generic import (
 from .forms import (
     ExportForm,
     ImportForm,
+    LifeEventForm,
     PersonForm,
     RelationshipForm,
 )
 from .models import (
     ExportTask,
+    LifeEvent,
     Person,
     Relationship,
     Tree,
@@ -40,41 +42,28 @@ from .services.import_service import ImportService
 # === ПУБЛИЧНЫЕ СТРАНИЦЫ ===
 
 class WelcomeView(TemplateView):
-    """
-    Публичная страница приветствия.
-
-    Доступна всем пользователям, включая анонимных.
-    Для авторизованных пользователей показывает кнопку "Перейти к деревьям".
-    """
+    """Публичная страница приветствия."""
     template_name = 'genealogy/welcome.html'
 
     def get(self, request, *args, **kwargs):
-        # Если пользователь уже авторизован — перенаправляем на список деревьев
         if request.user.is_authenticated:
             return redirect('genealogy:tree_list')
         return super().get(request, *args, **kwargs)
 
 
 class RegisterView(CreateView):
-    """
-    Страница регистрации нового пользователя.
-
-    После успешной регистрации автоматически входит в систему
-    и перенаправляет на список деревьев.
-    """
+    """Страница регистрации нового пользователя."""
     form_class = UserCreationForm
     template_name = 'registration/register.html'
     success_url = reverse_lazy('genealogy:tree_list')
 
     def dispatch(self, request, *args, **kwargs):
-        # Если уже авторизован — перенаправляем на список деревьев
         if request.user.is_authenticated:
             return redirect('genealogy:tree_list')
         return super().dispatch(request, *args, **kwargs)
 
     def form_valid(self, form):
         response = super().form_valid(form)
-        # Автоматически входим в систему после регистрации
         login(self.request, self.object)
         messages.success(
             self.request,
@@ -157,7 +146,6 @@ class TreeDetailView(LoginRequiredMixin, DetailView):
             context['user_role'] = collaborator.get_role_display()
             context['can_edit'] = tree.user_can_edit(user)
         elif user.is_superuser:
-            # Суперпользователь имеет полный доступ ко всем деревьям
             context['user_role'] = 'Администратор'
             context['can_edit'] = True
         else:
@@ -448,6 +436,132 @@ class RelationshipDeleteView(LoginRequiredMixin, DeleteView):
 
     def get_success_url(self):
         return reverse('genealogy:tree_detail', kwargs={'pk': self.tree.pk})
+
+
+# === VIEWS ДЛЯ СОБЫТИЙ ЖИЗНИ ===
+
+class LifeEventCreateView(LoginRequiredMixin, CreateView):
+    """Создание события жизни для персоны."""
+    model = LifeEvent
+    form_class = LifeEventForm
+    template_name = 'genealogy/life_event_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+
+        self.person = get_object_or_404(Person, pk=self.kwargs['person_pk'])
+        self.tree = self.person.tree
+
+        if not self.tree.user_can_edit(request.user):
+            return HttpResponseForbidden("У вас нет прав для добавления событий в это дерево")
+
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['person'] = self.person
+        kwargs['tree'] = self.tree
+        kwargs['user'] = self.request.user
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['person'] = self.person
+        context['tree'] = self.tree
+        context['action'] = 'Создание'
+        return context
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(
+            self.request,
+            f'Событие "{self.object.get_event_type_display()}" успешно добавлено.'
+        )
+        return response
+
+    def get_success_url(self):
+        return reverse('genealogy:person_detail', kwargs={'pk': self.person.pk})
+
+
+class LifeEventUpdateView(LoginRequiredMixin, UpdateView):
+    """Редактирование события жизни."""
+    model = LifeEvent
+    form_class = LifeEventForm
+    template_name = 'genealogy/life_event_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+
+        self.object = self.get_object()
+        self.person = self.object.person
+        self.tree = self.person.tree
+
+        if not self.tree.user_can_edit(request.user):
+            return HttpResponseForbidden("У вас нет прав для редактирования событий в этом дереве")
+
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['person'] = self.person
+        kwargs['tree'] = self.tree
+        kwargs['user'] = self.request.user
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['person'] = self.person
+        context['tree'] = self.tree
+        context['action'] = 'Редактирование'
+        return context
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(
+            self.request,
+            f'Событие "{self.object.get_event_type_display()}" успешно обновлено.'
+        )
+        return response
+
+    def get_success_url(self):
+        return reverse('genealogy:person_detail', kwargs={'pk': self.person.pk})
+
+
+class LifeEventDeleteView(LoginRequiredMixin, DeleteView):
+    """Удаление события жизни с подтверждением."""
+    model = LifeEvent
+    template_name = 'genealogy/life_event_confirm_delete.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+
+        self.object = self.get_object()
+        self.person = self.object.person
+        self.tree = self.person.tree
+
+        if not self.tree.user_can_edit(request.user):
+            return HttpResponseForbidden("У вас нет прав для удаления событий в этом дереве")
+
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['person'] = self.person
+        context['tree'] = self.tree
+        return context
+
+    def delete(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        event_name = self.object.get_event_type_display()
+        response = super().delete(request, *args, **kwargs)
+        messages.success(request, f'Событие "{event_name}" успешно удалено.')
+        return response
+
+    def get_success_url(self):
+        return reverse('genealogy:person_detail', kwargs={'pk': self.person.pk})
 
 
 # === VIEWS ДЛЯ ЭКСПОРТА И ИМПОРТА ===

@@ -21,7 +21,7 @@
                 </p>
             </div>
             {% if can_edit %}
-                <div class="flex space-x-2">
+                <div class="flex space-x-2 flex-wrap gap-2">
                     <a href="{% url 'genealogy:person_update' person.pk %}"
                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
                         Редактировать
@@ -210,14 +210,22 @@
 
     <!-- События жизни -->
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h2 class="text-xl font-semibold text-gray-900 mb-4">События жизни</h2>
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-semibold text-gray-900">События жизни</h2>
+            {% if can_edit %}
+                <a href="{% url 'genealogy:life_event_create' person.pk %}"
+                   class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium text-sm">
+                    + Добавить событие
+                </a>
+            {% endif %}
+        </div>
 
         {% if life_events %}
             <div class="space-y-4">
                 {% for event in life_events %}
-                    <div class="border-l-4 border-blue-500 pl-4 py-2">
+                    <div class="border-l-4 border-blue-500 pl-4 py-2 relative">
                         <div class="flex items-start justify-between">
-                            <div>
+                            <div class="flex-1">
                                 <div class="font-medium text-gray-900">
                                     {{ event.get_event_type_display }}
                                 </div>
@@ -225,6 +233,13 @@
                                     <div class="text-sm text-gray-500">
                                         {{ event.event_date|date:"d.m.Y" }}
                                         {% if event.is_date_approx %}(приблизительно){% endif %}
+                                        {% if event.end_date %}
+                                            — {{ event.end_date|date:"d.m.Y" }}
+                                        {% endif %}
+                                    </div>
+                                {% elif event.end_date %}
+                                    <div class="text-sm text-gray-500">
+                                        до {{ event.end_date|date:"d.m.Y" }}
                                     </div>
                                 {% endif %}
                                 {% if event.location %}
@@ -237,7 +252,28 @@
                                         {{ event.description }}
                                     </div>
                                 {% endif %}
+                                {% if event.related_person %}
+                                    <div class="text-sm text-gray-600 mt-1">
+                                        👤 Связана с:
+                                        <a href="{% url 'genealogy:person_detail' event.related_person.pk %}"
+                                           class="text-blue-600 hover:text-blue-800">
+                                            {{ event.related_person.full_name_display }}
+                                        </a>
+                                    </div>
+                                {% endif %}
                             </div>
+                            {% if can_edit %}
+                                <div class="flex space-x-2 ml-4">
+                                    <a href="{% url 'genealogy:life_event_update' event.pk %}"
+                                       class="text-blue-600 hover:text-blue-800 text-sm">
+                                        Изменить
+                                    </a>
+                                    <a href="{% url 'genealogy:life_event_delete' event.pk %}"
+                                       class="text-red-600 hover:text-red-800 text-sm">
+                                        Удалить
+                                    </a>
+                                </div>
+                            {% endif %}
                         </div>
                     </div>
                 {% endfor %}

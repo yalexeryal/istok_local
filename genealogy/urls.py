@@ -16,12 +16,8 @@ urlpatterns = [
     # === Аутентификация ===
     path('accounts/login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
     path('accounts/logout/', auth_views.LogoutView.as_view(), name='logout'),
-    path('accounts/password_change/',
-         auth_views.PasswordChangeView.as_view(template_name='registration/password_change.html',
-                                               success_url='/accounts/password_change/done/'), name='password_change'),
-    path('accounts/password_change/done/',
-         auth_views.PasswordChangeDoneView.as_view(template_name='registration/password_change_done.html'),
-         name='password_change_done'),
+    path('accounts/password_change/', auth_views.PasswordChangeView.as_view(template_name='registration/password_change.html', success_url='/accounts/password_change/done/'), name='password_change'),
+    path('accounts/password_change/done/', auth_views.PasswordChangeDoneView.as_view(template_name='registration/password_change_done.html'), name='password_change_done'),
 
     # === Деревья (требуют авторизации) ===
     path('trees/', views.TreeListView.as_view(), name='tree_list'),
@@ -40,6 +36,11 @@ urlpatterns = [
     path('person/<int:pk>/', views.PersonDetailView.as_view(), name='person_detail'),
     path('person/<int:pk>/edit/', views.PersonUpdateView.as_view(), name='person_update'),
     path('person/<int:pk>/delete/', views.PersonDeleteView.as_view(), name='person_delete'),
+
+    # === События жизни ===
+    path('person/<int:person_pk>/event/add/', views.LifeEventCreateView.as_view(), name='life_event_create'),
+    path('event/<int:pk>/edit/', views.LifeEventUpdateView.as_view(), name='life_event_update'),
+    path('event/<int:pk>/delete/', views.LifeEventDeleteView.as_view(), name='life_event_delete'),
 
     # === Родственные связи ===
     path('tree/<int:tree_pk>/relationship/add/', views.RelationshipCreateView.as_view(), name='relationship_create'),
