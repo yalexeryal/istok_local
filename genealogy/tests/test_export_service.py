@@ -8,12 +8,12 @@
 - Публичную выгрузку (PUBLIC)
 - Применение настроек приватности
 """
+
 import json
 import zipfile
 from io import BytesIO
 
 from django.contrib.auth.models import User
-from django.core.files.base import ContentFile
 from django.test import TestCase
 
 from genealogy.models import (
@@ -24,7 +24,6 @@ from genealogy.models import (
     ExportTypeEnum,
     GenderEnum,
     Person,
-    PrivacySettings,
     Relationship,
     RelationshipTypeEnum,
     Tree,
@@ -38,59 +37,35 @@ class ExportServiceTest(TestCase):
 
     def setUp(self) -> None:
         """Создание тестовых данных."""
-        self.user = User.objects.create_user(
-            username='testuser',
-            password='pass123'
-        )
-        self.tree = Tree.objects.create(
-            name='Тестовое дерево',
-            description='Описание'
-        )
-        TreeCollaborator.objects.create(
-            tree=self.tree,
-            user=self.user,
-            role=CollaboratorRoleEnum.OWNER
-        )
+        self.user = User.objects.create_user(username="testuser", password="pass123")
+        self.tree = Tree.objects.create(name="Тестовое дерево", description="Описание")
+        TreeCollaborator.objects.create(tree=self.tree, user=self.user, role=CollaboratorRoleEnum.OWNER)
 
         # Создаём персон
         self.father = Person.objects.create(
-            first_name='Пётр',
-            last_name='Иванов',
+            first_name="Пётр",
+            last_name="Иванов",
             gender=GenderEnum.MALE,
-            birth_date='1960-01-01',
+            birth_date="1960-01-01",
             tree=self.tree,
-            notes='Заметки об отце'
+            notes="Заметки об отце",
         )
         self.mother = Person.objects.create(
-            first_name='Мария',
-            last_name='Иванова',
-            gender=GenderEnum.FEMALE,
-            birth_date='1965-05-15',
-            tree=self.tree
+            first_name="Мария", last_name="Иванова", gender=GenderEnum.FEMALE, birth_date="1965-05-15", tree=self.tree
         )
         self.son = Person.objects.create(
-            first_name='Иван',
-            last_name='Иванов',
-            gender=GenderEnum.MALE,
-            birth_date='1990-03-20',
-            tree=self.tree
+            first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, birth_date="1990-03-20", tree=self.tree
         )
 
         # Создаём связи
         Relationship.objects.create(
-            from_person=self.father,
-            to_person=self.son,
-            relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
+            from_person=self.father, to_person=self.son, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
         )
         Relationship.objects.create(
-            from_person=self.mother,
-            to_person=self.son,
-            relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
+            from_person=self.mother, to_person=self.son, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
         )
         Relationship.objects.create(
-            from_person=self.father,
-            to_person=self.mother,
-            relationship_type=RelationshipTypeEnum.SPOUSE
+            from_person=self.father, to_person=self.mother, relationship_type=RelationshipTypeEnum.SPOUSE
         )
 
         self.service = ExportService()
@@ -98,10 +73,7 @@ class ExportServiceTest(TestCase):
     def test_create_export_task(self) -> None:
         """Тест создания задачи экспорта."""
         task = self.service.create_export_task(
-            user=self.user,
-            tree=self.tree,
-            export_type=ExportTypeEnum.FULL,
-            export_format=ExportFormatEnum.JSON_ZIP
+            user=self.user, tree=self.tree, export_type=ExportTypeEnum.FULL, export_format=ExportFormatEnum.JSON_ZIP
         )
 
         self.assertEqual(task.user, self.user)
@@ -111,11 +83,7 @@ class ExportServiceTest(TestCase):
 
     def test_export_full(self) -> None:
         """Тест полной выгрузки."""
-        task = self.service.create_export_task(
-            user=self.user,
-            tree=self.tree,
-            export_type=ExportTypeEnum.FULL
-        )
+        task = self.service.create_export_task(user=self.user, tree=self.tree, export_type=ExportTypeEnum.FULL)
 
         self.service.execute_export(task)
 
@@ -125,40 +93,37 @@ class ExportServiceTest(TestCase):
         self.assertEqual(task.person_count, 3)
 
         # Проверяем содержимое ZIP
-        with zipfile.ZipFile(BytesIO(task.file.read()), 'r') as zip_file:
+        with zipfile.ZipFile(BytesIO(task.file.read()), "r") as zip_file:
             # Проверяем наличие файлов
-            self.assertIn('manifest.json', zip_file.namelist())
-            self.assertIn('tree.json', zip_file.namelist())
-            self.assertIn('persons.json', zip_file.namelist())
-            self.assertIn('relationships.json', zip_file.namelist())
-            self.assertIn('life_events.json', zip_file.namelist())
-            self.assertIn('collaborators.json', zip_file.namelist())
+            self.assertIn("manifest.json", zip_file.namelist())
+            self.assertIn("tree.json", zip_file.namelist())
+            self.assertIn("persons.json", zip_file.namelist())
+            self.assertIn("relationships.json", zip_file.namelist())
+            self.assertIn("life_events.json", zip_file.namelist())
+            self.assertIn("collaborators.json", zip_file.namelist())
 
             # Проверяем manifest
-            manifest = json.loads(zip_file.read('manifest.json'))
-            self.assertEqual(manifest['export_type'], ExportTypeEnum.FULL)
-            self.assertEqual(manifest['person_count'], 3)
+            manifest = json.loads(zip_file.read("manifest.json"))
+            self.assertEqual(manifest["export_type"], ExportTypeEnum.FULL)
+            self.assertEqual(manifest["person_count"], 3)
 
             # Проверяем persons
-            persons = json.loads(zip_file.read('persons.json'))
+            persons = json.loads(zip_file.read("persons.json"))
             self.assertEqual(len(persons), 3)
 
             # Проверяем, что все данные на месте
-            father_data = next(p for p in persons if p['first_name'] == 'Пётр')
-            self.assertEqual(father_data['notes'], 'Заметки об отце')
-            self.assertEqual(father_data['birth_date'], '1960-01-01')
+            father_data = next(p for p in persons if p["first_name"] == "Пётр")
+            self.assertEqual(father_data["notes"], "Заметки об отце")
+            self.assertEqual(father_data["birth_date"], "1960-01-01")
 
             # Проверяем relationships
-            relationships = json.loads(zip_file.read('relationships.json'))
+            relationships = json.loads(zip_file.read("relationships.json"))
             self.assertEqual(len(relationships), 3)
 
     def test_export_relative(self) -> None:
         """Тест выгрузки для родственника."""
         task = self.service.create_export_task(
-            user=self.user,
-            tree=self.tree,
-            export_type=ExportTypeEnum.RELATIVE,
-            target_person=self.son
+            user=self.user, tree=self.tree, export_type=ExportTypeEnum.RELATIVE, target_person=self.son
         )
 
         self.service.execute_export(task)
@@ -168,18 +133,14 @@ class ExportServiceTest(TestCase):
         self.assertEqual(task.person_count, 3)  # Все три персоны связаны
 
         # Проверяем содержимое ZIP
-        with zipfile.ZipFile(BytesIO(task.file.read()), 'r') as zip_file:
-            manifest = json.loads(zip_file.read('manifest.json'))
-            self.assertEqual(manifest['export_type'], ExportTypeEnum.RELATIVE)
-            self.assertEqual(manifest['target_person'], 'Иванов Иван')
+        with zipfile.ZipFile(BytesIO(task.file.read()), "r") as zip_file:
+            manifest = json.loads(zip_file.read("manifest.json"))
+            self.assertEqual(manifest["export_type"], ExportTypeEnum.RELATIVE)
+            self.assertEqual(manifest["target_person"], "Иванов Иван")
 
     def test_export_public(self) -> None:
         """Тест публичной выгрузки."""
-        task = self.service.create_export_task(
-            user=self.user,
-            tree=self.tree,
-            export_type=ExportTypeEnum.PUBLIC
-        )
+        task = self.service.create_export_task(user=self.user, tree=self.tree, export_type=ExportTypeEnum.PUBLIC)
 
         self.service.execute_export(task)
 
@@ -188,24 +149,24 @@ class ExportServiceTest(TestCase):
         self.assertEqual(task.person_count, 3)
 
         # Проверяем содержимое ZIP
-        with zipfile.ZipFile(BytesIO(task.file.read()), 'r') as zip_file:
+        with zipfile.ZipFile(BytesIO(task.file.read()), "r") as zip_file:
             # Проверяем наличие файлов
-            self.assertIn('manifest.json', zip_file.namelist())
-            self.assertIn('persons.json', zip_file.namelist())
-            self.assertIn('relationships.json', zip_file.namelist())
+            self.assertIn("manifest.json", zip_file.namelist())
+            self.assertIn("persons.json", zip_file.namelist())
+            self.assertIn("relationships.json", zip_file.namelist())
 
             # НЕ должно быть life_events и collaborators
-            self.assertNotIn('life_events.json', zip_file.namelist())
-            self.assertNotIn('collaborators.json', zip_file.namelist())
+            self.assertNotIn("life_events.json", zip_file.namelist())
+            self.assertNotIn("collaborators.json", zip_file.namelist())
 
             # Проверяем persons (урезанные)
-            persons = json.loads(zip_file.read('persons.json'))
-            father_data = next(p for p in persons if p['first_name'] == 'Пётр')
+            persons = json.loads(zip_file.read("persons.json"))
+            father_data = next(p for p in persons if p["first_name"] == "Пётр")
 
             # В публичной версии только год, нет заметок
-            self.assertEqual(father_data['birth_year'], 1960)
-            self.assertNotIn('notes', father_data)
-            self.assertNotIn('birth_date', father_data)
+            self.assertEqual(father_data["birth_year"], 1960)
+            self.assertNotIn("notes", father_data)
+            self.assertNotIn("birth_date", father_data)
 
     def test_export_with_privacy_settings(self) -> None:
         """
@@ -221,21 +182,18 @@ class ExportServiceTest(TestCase):
         privacy.save()
 
         task = self.service.create_export_task(
-            user=self.user,
-            tree=self.tree,
-            export_type=ExportTypeEnum.RELATIVE,
-            target_person=self.son
+            user=self.user, tree=self.tree, export_type=ExportTypeEnum.RELATIVE, target_person=self.son
         )
 
         self.service.execute_export(task)
 
         # Проверяем содержимое ZIP
-        with zipfile.ZipFile(BytesIO(task.file.read()), 'r') as zip_file:
-            persons = json.loads(zip_file.read('persons.json'))
-            father_data = next(p for p in persons if p['first_name'] == 'Пётр')
+        with zipfile.ZipFile(BytesIO(task.file.read()), "r") as zip_file:
+            persons = json.loads(zip_file.read("persons.json"))
+            father_data = next(p for p in persons if p["first_name"] == "Пётр")
 
             # Заметки должны быть скрыты
-            self.assertIsNone(father_data['notes'])
+            self.assertIsNone(father_data["notes"])
 
     def test_export_relative_close_relatives_get_full_data(self) -> None:
         """
@@ -252,29 +210,26 @@ class ExportServiceTest(TestCase):
         privacy.save()
 
         task = self.service.create_export_task(
-            user=self.user,
-            tree=self.tree,
-            export_type=ExportTypeEnum.RELATIVE,
-            target_person=self.son
+            user=self.user, tree=self.tree, export_type=ExportTypeEnum.RELATIVE, target_person=self.son
         )
 
         self.service.execute_export(task)
 
         # Проверяем содержимое ZIP
-        with zipfile.ZipFile(BytesIO(task.file.read()), 'r') as zip_file:
-            persons = json.loads(zip_file.read('persons.json'))
-            father_data = next(p for p in persons if p['first_name'] == 'Пётр')
+        with zipfile.ZipFile(BytesIO(task.file.read()), "r") as zip_file:
+            persons = json.loads(zip_file.read("persons.json"))
+            father_data = next(p for p in persons if p["first_name"] == "Пётр")
 
             # Отец имеет степень родства 1 (родитель целевой персоны)
             # 1 <= 1 = True, поэтому полные данные, включая заметки
-            self.assertEqual(father_data['notes'], 'Заметки об отце')
+            self.assertEqual(father_data["notes"], "Заметки об отце")
 
     def test_export_requires_target_person_for_relative(self) -> None:
         """Тест: для RELATIVE экспорта нужна целевая персона."""
         task = self.service.create_export_task(
             user=self.user,
             tree=self.tree,
-            export_type=ExportTypeEnum.RELATIVE
+            export_type=ExportTypeEnum.RELATIVE,
             # Без target_person
         )
 
@@ -288,10 +243,7 @@ class ExportServiceTest(TestCase):
         """Тест обработки ошибок при экспорте."""
         # Создаём задачу с несуществующим типом
         task = ExportTask.objects.create(
-            user=self.user,
-            tree=self.tree,
-            export_type='invalid_type',
-            status=ExportStatusEnum.PENDING
+            user=self.user, tree=self.tree, export_type="invalid_type", status=ExportStatusEnum.PENDING
         )
 
         with self.assertRaises(ValueError):

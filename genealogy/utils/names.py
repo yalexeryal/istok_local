@@ -34,20 +34,20 @@ def _generate_slavic_patronymic(name: str, gender: str, culture: str = "ru") -> 
     last_letter = name_lower[-1]
 
     full_exceptions = {
-        ('лев', 'male'): 'львович',
-        ('лев', 'female'): 'львовна',
-        ('павел', 'male'): 'павлович',
-        ('павел', 'female'): 'павловна',
-        ('пётр', 'male'): 'петрович',
-        ('пётр', 'female'): 'петровна',
-        ('илья', 'male'): 'ильич',
-        ('илья', 'female'): 'ильинична',
-        ('никита', 'male'): 'никитич',
-        ('никита', 'female'): 'никитична',
-        ('лука', 'male'): 'лукич',
-        ('лука', 'female'): 'лукична',
-        ('фома', 'male'): 'фомич',
-        ('фома', 'female'): 'фомична',
+        ("лев", "male"): "львович",
+        ("лев", "female"): "львовна",
+        ("павел", "male"): "павлович",
+        ("павел", "female"): "павловна",
+        ("пётр", "male"): "петрович",
+        ("пётр", "female"): "петровна",
+        ("илья", "male"): "ильич",
+        ("илья", "female"): "ильинична",
+        ("никита", "male"): "никитич",
+        ("никита", "female"): "никитична",
+        ("лука", "male"): "лукич",
+        ("лука", "female"): "лукична",
+        ("фома", "male"): "фомич",
+        ("фома", "female"): "фомична",
     }
 
     exception_key = (name_lower, gender)
@@ -55,39 +55,39 @@ def _generate_slavic_patronymic(name: str, gender: str, culture: str = "ru") -> 
         return full_exceptions[exception_key].capitalize()
 
     base = name_lower
-    if base.endswith('ь'):
+    if base.endswith("ь"):
         base = base[:-1]
 
     if culture == "uk":
-        if gender == 'male':
-            if last_letter == 'й':
-                result = base[:-1] + 'ійович'
-            elif last_letter in ['а', 'я']:
-                result = base[:-1] + 'ич'
+        if gender == "male":
+            if last_letter == "й":
+                result = base[:-1] + "ійович"
+            elif last_letter in ["а", "я"]:
+                result = base[:-1] + "ич"
             else:
-                result = base + 'ович'
+                result = base + "ович"
         else:
-            if last_letter == 'й':
-                result = base[:-1] + 'ійвна'
-            elif last_letter in ['а', 'я']:
-                result = base[:-1] + 'івна'
+            if last_letter == "й":
+                result = base[:-1] + "ійвна"
+            elif last_letter in ["а", "я"]:
+                result = base[:-1] + "івна"
             else:
-                result = base + 'вна'
+                result = base + "вна"
     else:
-        if gender == 'male':
-            if last_letter == 'й':
-                result = base[:-1] + 'евич'
-            elif last_letter in ['а', 'я']:
-                result = base[:-1] + 'ич'
+        if gender == "male":
+            if last_letter == "й":
+                result = base[:-1] + "евич"
+            elif last_letter in ["а", "я"]:
+                result = base[:-1] + "ич"
             else:
-                result = base + 'ович'
+                result = base + "ович"
         else:
-            if last_letter == 'й':
-                result = base[:-1] + 'евна'
-            elif last_letter in ['а', 'я']:
-                result = base[:-1] + 'ична'
+            if last_letter == "й":
+                result = base[:-1] + "евна"
+            elif last_letter in ["а", "я"]:
+                result = base[:-1] + "ична"
             else:
-                result = base + 'овна'
+                result = base + "овна"
 
     return result.capitalize()
 
@@ -95,15 +95,15 @@ def _generate_slavic_patronymic(name: str, gender: str, culture: str = "ru") -> 
 def _generate_polish_patronymic(name: str, gender: str) -> str | None:
     """Генерация отчества для польского языка."""
     name_lower = name.lower()
-    if name_lower.endswith('a'):
+    if name_lower.endswith("a"):
         base = name_lower[:-1]
     else:
         base = name_lower
 
-    if gender == 'male':
-        result = (base + 'wicz') if base.endswith('e') else (base + 'owicz')
+    if gender == "male":
+        result = (base + "wicz") if base.endswith("e") else (base + "owicz")
     else:
-        result = (base + 'wna') if base.endswith('e') else (base + 'ówna')
+        result = (base + "wna") if base.endswith("e") else (base + "ówna")
     return result.capitalize()
 
 
@@ -111,27 +111,27 @@ def _generate_turkic_patronymic(name: str, gender: str, culture: str) -> str | N
     """Генерация отчества для тюркских языков."""
     name_lower = name.lower()
     if culture == "kk":
-        result = name_lower + ('ұлы' if gender == 'male' else 'қызы')
+        result = name_lower + ("ұлы" if gender == "male" else "қызы")
     elif culture == "ky":
-        result = name_lower + ('уулу' if gender == 'male' else 'кызы')
+        result = name_lower + ("уулу" if gender == "male" else "кызы")
     else:
-        result = name_lower + (" o'g'li" if gender == 'male' else ' qizi')
+        result = name_lower + (" o'g'li" if gender == "male" else " qizi")
     return result
 
 
 def _generate_azerbaijani_patronymic(name: str, gender: str) -> str | None:
     """Генерация отчества для азербайджанского языка."""
     name_lower = name.lower()
-    return name_lower + ('oğlu' if gender == 'male' else 'qızı')
+    return name_lower + ("oğlu" if gender == "male" else "qızı")
 
 
 def _generate_scandinavian_patronymic(name: str, gender: str, culture: str) -> str | None:
     """Генерация отчества для скандинавских языков."""
     name_lower = name.lower()
     if culture == "sv":
-        result = name_lower + ('son' if gender == 'male' else 'dotter')
+        result = name_lower + ("son" if gender == "male" else "dotter")
     elif culture in ["no", "da"]:
-        result = name_lower + ('sen' if gender == 'male' else 'datter')
+        result = name_lower + ("sen" if gender == "male" else "datter")
     else:
         return None
     return result
@@ -140,10 +140,11 @@ def _generate_scandinavian_patronymic(name: str, gender: str, culture: str) -> s
 def _generate_icelandic_patronymic(name: str, gender: str) -> str | None:
     """Генерация отчества для исландского языка."""
     name_lower = name.lower()
-    return name_lower + ('son' if gender == 'male' else 'dóttir')
+    return name_lower + ("son" if gender == "male" else "dóttir")
 
 
 # === СКЛОНЕНИЕ ФАМИЛИЙ ===
+
 
 def decline_lastname(lastname: str, gender: str, culture: str = "ru") -> str | None:
     """
@@ -171,36 +172,31 @@ def decline_lastname(lastname: str, gender: str, culture: str = "ru") -> str | N
         return lastname
 
     # Если пол мужской — возвращаем как есть
-    if gender == 'male':
+    if gender == "male":
         return lastname
 
     # Женский пол — склоняем
     name_lower = lastname.lower().strip()
 
     # Уже женская форма (оканчивается на -а/-я, но не -ова/-ева/-ева)
-    if name_lower.endswith(('ова', 'ева', 'ина', 'ая', 'яя', 'ская')):
+    if name_lower.endswith(("ова", "ева", "ина", "ая", "яя", "ская")):
         return lastname
 
     # Русские/славянские окончания
-    if name_lower.endswith('ов') or name_lower.endswith('ёв'):
-        return lastname + 'а'
-    elif name_lower.endswith('ев'):
-        return lastname + 'а'
-    elif name_lower.endswith('ин'):
-        return lastname + 'а'
-    elif name_lower.endswith('ский') or name_lower.endswith('ский'):
-        return lastname[:-2] + 'ая'
-    elif name_lower.endswith('ской'):
-        return lastname[:-2] + 'ая'
-    elif name_lower.endswith('ой'):
-        return lastname[:-2] + 'ая'
-    elif name_lower.endswith('ий'):
-        return lastname[:-2] + 'ая'
-    elif name_lower.endswith('ый'):
-        return lastname[:-2] + 'ая'
+    if name_lower.endswith("ов") or name_lower.endswith("ёв") or name_lower.endswith("ев") or name_lower.endswith("ин"):
+        return lastname + "а"
+    elif (
+        name_lower.endswith("ский")
+        or name_lower.endswith("ский")
+        or name_lower.endswith("ской")
+        or name_lower.endswith("ой")
+        or name_lower.endswith("ий")
+        or name_lower.endswith("ый")
+    ):
+        return lastname[:-2] + "ая"
 
     # Фамилии на -ко, -енко, -ич не склоняются
-    if name_lower.endswith(('ко', 'енко', 'ич', 'ых', 'их')):
+    if name_lower.endswith(("ко", "енко", "ич", "ых", "их")):
         return lastname
 
     # По умолчанию не склоняем

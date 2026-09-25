@@ -1,0 +1,64 @@
+[project]
+name = "istok_local"
+version = "0.1.0"
+description = "Локальное генеалогическое приложение для ведения родового дерева"
+requires-python = ">=3.12"
+dependencies = [
+    "django>=5.1,<5.2",
+    "pytest>=9.0",
+    "pytest-django>=4.5",
+    "pillow>=10.0",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["genealogy", "istok_local"]
+
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "migrations",
+    "manage.py",
+    "istok_local/settings.py",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "RUF",  # ruff-specific rules
+]
+
+ignore = [
+    "E501",    # line too long
+    "B008",    # do not perform function calls in argument defaults
+    "RUF001",  # ❌ ОТКЛЮЧАЕМ: ambiguous character in string (кириллица в строках)
+    "RUF002",  # ❌ ОТКЛЮЧАЕМ: ambiguous character in docstring (кириллица в докстрингах)
+    "RUF003",  # ❌ ОТКЛЮЧАЕМ: ambiguous character in comment (кириллица в комментариях)
+    "RUF012",  # mutable class attributes (Django models)
+    "SIM108",  # use ternary operator
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["genealogy", "istok_local"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/*.py" = ["E501", "F401", "I001"]
+"tests/*.py" = ["B011", "S101", "B017"]
+"**/admin.py" = ["B008"]

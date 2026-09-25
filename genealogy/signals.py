@@ -1,6 +1,7 @@
 """
 Django signals для автоматического создания связанных объектов.
 """
+
 from django.contrib.auth.models import User
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -14,10 +15,7 @@ def create_user_profile(sender: type, instance: User, created: bool, **kwargs) -
     Автоматически создает UserProfile при создании нового пользователя.
     """
     if created:
-        UserProfile.objects.get_or_create(
-            user=instance,
-            defaults={'tier': UserTierEnum.FREE}
-        )
+        UserProfile.objects.get_or_create(user=instance, defaults={"tier": UserTierEnum.FREE})
 
 
 @receiver(post_save, sender=User)
@@ -25,7 +23,7 @@ def save_user_profile(sender: type, instance: User, **kwargs) -> None:
     """
     Сохраняет связанный UserProfile при сохранении пользователя.
     """
-    if hasattr(instance, 'profile'):
+    if hasattr(instance, "profile"):
         instance.profile.save()
 
 
@@ -43,5 +41,5 @@ def save_privacy_settings(sender: type, instance: User, **kwargs) -> None:
     """
     Сохраняет связанный PrivacySettings при сохранении пользователя.
     """
-    if hasattr(instance, 'privacy_settings'):
+    if hasattr(instance, "privacy_settings"):
         instance.privacy_settings.save()

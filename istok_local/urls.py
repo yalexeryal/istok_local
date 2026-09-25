@@ -14,6 +14,7 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
@@ -21,10 +22,9 @@ from django.urls import include, path
 
 urlpatterns = [
     # Админ-панель Django
-    path('admin/', admin.site.urls),
-
+    path("admin/", admin.site.urls),
     # Все остальные маршруты — в приложении genealogy
-    path('', include('genealogy.urls')),
+    path("", include("genealogy.urls")),
 ]
 
 # В режиме разработки добавляем обслуживание медиа-файлов
