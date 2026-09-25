@@ -41,11 +41,12 @@ select = [
 ignore = [
     "E501",    # line too long
     "B008",    # do not perform function calls in argument defaults
-    "RUF001",  # ❌ ОТКЛЮЧАЕМ: ambiguous character in string (кириллица в строках)
-    "RUF002",  # ❌ ОТКЛЮЧАЕМ: ambiguous character in docstring (кириллица в докстрингах)
-    "RUF003",  # ❌ ОТКЛЮЧАЕМ: ambiguous character in comment (кириллица в комментариях)
+    "RUF001",  # ambiguous character in string (кириллица)
+    "RUF002",  # ambiguous character in docstring (кириллица)
+    "RUF003",  # ambiguous character in comment (кириллица)
     "RUF012",  # mutable class attributes (Django models)
     "SIM108",  # use ternary operator
+    "SIM114",  # combine if branches (иногда раздельно читается лучше)
 ]
 
 [tool.ruff.lint.isort]
