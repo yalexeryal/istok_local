@@ -1,15 +1,49 @@
+# =============================================================================
+# Информация о проекте
+# =============================================================================
 [project]
 name = "istok_local"
 version = "0.1.0"
 description = "Локальное генеалогическое приложение для ведения родового дерева"
 requires-python = ">=3.12"
+readme = "README.md"
+
+# Рабочие зависимости (нужны для запуска приложения)
 dependencies = [
     "django>=5.1,<5.2",
-    "pytest>=9.0",
-    "pytest-django>=4.5",
     "pillow>=10.0",
 ]
 
+# Разработческие зависимости (нужны только для разработки)
+# Установка: pip install -e ".[dev]"
+[project.optional-dependencies]
+dev = [
+    # Тестирование
+    "pytest>=9.0",
+    "pytest-django>=4.5",
+    "pytest-cov>=5.0",
+    # Линтинг и форматирование
+    "ruff>=0.11.0",
+    # Отладка
+    "django-debug-toolbar>=4.4",
+    # Автоматизация
+    "pre-commit>=3.7",
+]
+
+# =============================================================================
+# Система сборки
+# =============================================================================
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# Явно указываем, какие пакеты включать (игнорируем media, static, templates)
+[tool.setuptools.packages.find]
+include = ["genealogy*", "istok_local*"]
+
+# =============================================================================
+# Настройки Ruff (линтер + форматтер)
+# =============================================================================
 [tool.ruff]
 line-length = 120
 target-version = "py312"
@@ -39,14 +73,13 @@ select = [
 ]
 
 ignore = [
-    "E501",    # line too long
+    "E501",    # line too long (обрабатывается форматтером)
     "B008",    # do not perform function calls in argument defaults
     "RUF001",  # ambiguous character in string (кириллица)
     "RUF002",  # ambiguous character in docstring (кириллица)
     "RUF003",  # ambiguous character in comment (кириллица)
     "RUF012",  # mutable class attributes (Django models)
     "SIM108",  # use ternary operator
-    "SIM114",  # combine if branches (иногда раздельно читается лучше)
 ]
 
 [tool.ruff.lint.isort]
@@ -63,3 +96,30 @@ docstring-code-line-length = 100
 "migrations/*.py" = ["E501", "F401", "I001"]
 "tests/*.py" = ["B011", "S101", "B017"]
 "**/admin.py" = ["B008"]
+
+# =============================================================================
+# Настройки pytest (переносим из pytest.ini)
+# =============================================================================
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "istok_local.settings"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]
+addopts = "-v --tb=short"
+
+# =============================================================================
+# Настройки coverage (покрытие кода)
+# =============================================================================
+[tool.coverage.run]
+source = ["genealogy"]
+omit = [
+    "*/migrations/*",
+    "*/tests/*",
+    "*/admin.py",
+    "manage.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
