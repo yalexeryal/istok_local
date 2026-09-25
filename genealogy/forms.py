@@ -16,6 +16,7 @@ from .models import (
     RelationshipTypeEnum,
     Tree,
 )
+from .utils.names import decline_lastname, generate_patronymic
 
 
 class TreeCreateForm(forms.ModelForm):
@@ -37,6 +38,23 @@ class TreeCreateForm(forms.ModelForm):
 
 
 class PersonForm(forms.ModelForm):
+    """Форма создания/редактирования персоны с полями отца/матери."""
+    # Дополнительные поля для родителей (не в модели)
+    father = forms.ModelChoiceField(
+        queryset=Person.objects.none(),
+        required=False,
+        label='Отец',
+        widget=forms.Select(attrs={
+            'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'})
+    )
+    mother = forms.ModelChoiceField(
+        queryset=Person.objects.none(),
+        required=False,
+        label='Мать',
+        widget=forms.Select(attrs={
+            'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'})
+    )
+
     class Meta:
         model = Person
         fields = ['first_name', 'middle_name', 'last_name', 'maiden_name', 'gender', 'birth_date',
@@ -81,8 +99,40 @@ class PersonForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.tree = tree
         self.user = user
+        self.duplicates_found = []  # Для хранения найденных дублей
+
         if tree and not self.instance.pk:
             self.instance.tree = tree
+
+        # Ограничиваем выбор родителей только текущим деревом
+        if tree:
+            self.fields['father'].queryset = Person.objects.filter(
+                tree=tree, gender=GenderEnum.MALE
+            ).order_by('last_name', 'first_name')
+            self.fields['mother'].queryset = Person.objects.filter(
+                tree=tree, gender=GenderEnum.FEMALE
+            ).order_by('last_name', 'first_name')
+
+        # Если редактируем существующую персону — заполняем поля родителей
+        if self.instance.pk:
+            parents = self.instance.get_parents()
+            for parent in parents:
+                # Определяем тип связи
+                rel = Relationship.objects.filter(
+                    from_person=parent,
+                    to_person=self.instance,
+                    relationship_type__in=[
+                        RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                        RelationshipTypeEnum.ADOPTIVE_PARENT,
+                        RelationshipTypeEnum.STEP_PARENT
+                    ]
+                ).first()
+                if rel:
+                    if parent.gender == GenderEnum.MALE:
+                        self.fields['father'].initial = parent.pk
+                    elif parent.gender == GenderEnum.FEMALE:
+                        self.fields['mother'].initial = parent.pk
+
         self.fields['first_name'].required = True
         self.fields['gender'].required = True
         if self.instance.gender and self.instance.gender != GenderEnum.FEMALE:
@@ -91,18 +141,33 @@ class PersonForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         first_name = cleaned_data.get('first_name')
+        middle_name = cleaned_data.get('middle_name')
         last_name = cleaned_data.get('last_name')
         gender = cleaned_data.get('gender')
         maiden_name = cleaned_data.get('maiden_name')
         birth_date = cleaned_data.get('birth_date')
+        birth_place = cleaned_data.get('birth_place')
         death_date = cleaned_data.get('death_date')
 
         if first_name and self.tree:
-            queryset = Person.objects.filter(first_name=first_name, last_name=last_name or '', tree=self.tree)
+            # Проверка точного дубликата (ФИО + дерево)
+            queryset = Person.objects.filter(
+                first_name=first_name,
+                last_name=last_name or '',
+                tree=self.tree
+            )
             if self.instance.pk:
                 queryset = queryset.exclude(pk=self.instance.pk)
             if queryset.exists():
-                raise ValidationError(f'В этом дереве уже есть персона с именем "{first_name} {last_name or ""}".')
+                raise ValidationError(
+                    f'В этом дереве уже есть персона с именем '
+                    f'"{first_name} {last_name or ""}".'
+                )
+
+            # Нечеткая проверка дубликатов (для предупреждения)
+            self.duplicates_found = self._find_duplicates(
+                first_name, middle_name, last_name, birth_date, birth_place
+            )
 
         if birth_date and death_date and death_date < birth_date:
             raise ValidationError({'death_date': 'Дата смерти не может быть раньше даты рождения.'})
@@ -112,6 +177,61 @@ class PersonForm(forms.ModelForm):
 
         return cleaned_data
 
+    def _find_duplicates(self, first_name, middle_name, last_name, birth_date, birth_place):
+        """
+        Нечеткий поиск дубликатов по ФИО + дата рождения + место рождения.
+        Возвращает список найденных персон.
+        """
+        if not self.tree or not first_name:
+            return []
+
+        candidates = Person.objects.filter(tree=self.tree).exclude(pk=self.instance.pk if self.instance.pk else None)
+
+        duplicates = []
+        for person in candidates:
+            score = 0
+
+            # Сравнение имени (нечеткое)
+            if person.first_name:
+                if person.first_name.lower() == first_name.lower():
+                    score += 3
+                elif person.first_name[0].lower() == first_name[0].lower():
+                    score += 1  # Первая буква совпадает
+
+            # Сравнение фамилии
+            if person.last_name and last_name:
+                if person.last_name.lower() == last_name.lower():
+                    score += 3
+                elif person.last_name[0].lower() == last_name[0].lower():
+                    score += 1
+
+            # Сравнение отчества
+            if person.middle_name and middle_name:
+                if person.middle_name.lower() == middle_name.lower():
+                    score += 2
+                elif person.middle_name[0].lower() == middle_name[0].lower():
+                    score += 1
+
+            # Сравнение даты рождения
+            if person.birth_date and birth_date:
+                if person.birth_date == birth_date:
+                    score += 3
+                elif person.birth_date.year == birth_date.year:
+                    score += 1
+
+            # Сравнение места рождения
+            if person.birth_place and birth_place:
+                if person.birth_place.lower() == birth_place.lower():
+                    score += 2
+                elif any(word.lower() in person.birth_place.lower() for word in birth_place.split() if len(word) > 3):
+                    score += 1
+
+            # Если score >= 6 — считаем возможным дублем
+            if score >= 6:
+                duplicates.append(person)
+
+        return duplicates
+
     def save(self, commit=True):
         person = super().save(commit=False)
         if self.user:
@@ -120,10 +240,46 @@ class PersonForm(forms.ModelForm):
             person.sync_version += 1
         if commit:
             person.save()
+            # Обновляем связи с родителями
+            self._update_parent_relationships(person)
         return person
+
+    def _update_parent_relationships(self, person):
+        """Обновляет связи с родителями после сохранения персоны."""
+        father = self.cleaned_data.get('father')
+        mother = self.cleaned_data.get('mother')
+
+        # Удаляем старые связи родитель-ребенок
+        Relationship.objects.filter(
+            to_person=person,
+            relationship_type__in=[
+                RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                RelationshipTypeEnum.ADOPTIVE_PARENT,
+                RelationshipTypeEnum.STEP_PARENT
+            ]
+        ).delete()
+
+        # Создаем новые связи
+        if father:
+            Relationship.objects.get_or_create(
+                from_person=father,
+                to_person=person,
+                relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                defaults={'created_by': self.user}
+            )
+
+        if mother:
+            Relationship.objects.get_or_create(
+                from_person=mother,
+                to_person=person,
+                relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                defaults={'created_by': self.user}
+            )
 
 
 class RelationshipForm(forms.ModelForm):
+    """Форма создания родственной связи между двумя персонами."""
+
     class Meta:
         model = Relationship
         fields = ['from_person', 'to_person', 'relationship_type', 'start_date', 'end_date', 'is_current',
@@ -190,6 +346,8 @@ class RelationshipForm(forms.ModelForm):
 
 
 class LifeEventForm(forms.ModelForm):
+    """Форма создания/редактирования события жизни."""
+
     class Meta:
         model = LifeEvent
         fields = ['event_type', 'event_date', 'end_date', 'is_date_approx', 'location', 'description', 'related_person']
@@ -256,7 +414,7 @@ class LifeEventForm(forms.ModelForm):
 
         if commit:
             event.save()
-            # АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ЗЕРКАЛЬНОГО СОБЫТИЯ ДЛЯ БРАКА/РАЗВОДА
+            # Автоматическое создание зеркального события для брака/развода
             if event.event_type in [EventTypeEnum.MARRIAGE, EventTypeEnum.DIVORCE] and event.related_person:
                 reverse_exists = LifeEvent.objects.filter(
                     person=event.related_person,
@@ -281,6 +439,7 @@ class LifeEventForm(forms.ModelForm):
 
 
 class ExportForm(forms.Form):
+    """Форма настройки экспорта дерева."""
     export_type = forms.ChoiceField(choices=ExportTypeEnum.choices, label='Тип экспорта', widget=forms.Select(attrs={
         'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500'}))
     export_format = forms.ChoiceField(choices=ExportFormatEnum.choices, label='Формат файла',
@@ -305,6 +464,7 @@ class ExportForm(forms.Form):
 
 
 class ImportForm(forms.Form):
+    """Форма загрузки файла для импорта."""
     source_file = forms.FileField(label='Файл для импорта (.zip)', widget=forms.FileInput(attrs={
         'class': 'w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
         'accept': '.zip'}))

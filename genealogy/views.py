@@ -28,7 +28,7 @@ from .models import (
 )
 from .services.export_service import ExportService
 from .services.import_service import ImportService
-from .utils.names import generate_patronymic
+from .utils.names import decline_lastname, generate_patronymic
 
 
 class WelcomeView(TemplateView):
@@ -150,13 +150,7 @@ def tree_data_api(request, pk):
 
 
 def _get_current_spouse(person: Person) -> Person | None:
-    """
-    Возвращает текущего супруга персоны по приоритету:
-    1. SPOUSE с is_current=True
-    2. FIANCE
-    3. None
-    """
-    # Ищем официального супруга с is_current=True
+    """Возвращает текущего супруга персоны по приоритету."""
     spouse_rel = Relationship.objects.filter(
         Q(from_person=person, relationship_type=RelationshipTypeEnum.SPOUSE, is_current=True) |
         Q(to_person=person, relationship_type=RelationshipTypeEnum.SPOUSE, is_current=True)
@@ -165,7 +159,6 @@ def _get_current_spouse(person: Person) -> Person | None:
     if spouse_rel:
         return spouse_rel.to_person if spouse_rel.from_person == person else spouse_rel.from_person
 
-    # Если нет, ищем жениха/невесту
     fiance_rel = Relationship.objects.filter(
         Q(from_person=person, relationship_type=RelationshipTypeEnum.FIANCE) |
         Q(to_person=person, relationship_type=RelationshipTypeEnum.FIANCE)
@@ -178,12 +171,7 @@ def _get_current_spouse(person: Person) -> Person | None:
 
 
 class PersonCreateView(LoginRequiredMixin, CreateView):
-    """
-    Создание новой персоны с поддержкой контекстных параметров:
-    - ?parent1_id=X&relation=son → создание ребенка (с автозаполнением)
-    - ?spouse_of=X → создание супруга
-    - ?child_id=X → создание родителя
-    """
+    """Создание новой персоны с поддержкой контекстных параметров."""
     model = Person
     form_class = PersonForm
     template_name = 'genealogy/person_form.html'
@@ -196,23 +184,29 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
         if not self.tree.user_can_edit(request.user):
             return HttpResponseForbidden("У вас нет прав для добавления персон в это дерево")
 
-        # Обрабатываем контекстные параметры
+        # Контекстные параметры
         self.parent1_id = request.GET.get('parent1_id')
-        self.parent2_id = request.GET.get('parent2_id')
-        self.relation = request.GET.get('relation')  # son, daughter, adopted_son, adopted_daughter
+        self.relation = request.GET.get('relation')  # son, daughter, adopted_son, adopted_daughter, father, mother
         self.spouse_of_id = request.GET.get('spouse_of')
         self.child_id = request.GET.get('child_id')
 
         # Загружаем связанные персоны
         self.parent1 = Person.objects.filter(pk=self.parent1_id).first() if self.parent1_id else None
-        self.parent2 = Person.objects.filter(pk=self.parent2_id).first() if self.parent2_id else None
         self.spouse_of = Person.objects.filter(pk=self.spouse_of_id).first() if self.spouse_of_id else None
         self.child = Person.objects.filter(pk=self.child_id).first() if self.child_id else None
 
-        # Если создается ребенок и parent2 не указан — берем текущего супруга parent1
-        if self.parent1 and not self.parent2 and self.relation in ['son', 'daughter', 'adopted_son',
-                                                                   'adopted_daughter']:
-            self.parent2 = _get_current_spouse(self.parent1)
+        # Определяем отца и мать для режима создания ребенка
+        self.father = None
+        self.mother = None
+
+        if self.parent1 and self.relation in ['son', 'daughter', 'adopted_son', 'adopted_daughter']:
+            if self.parent1.gender == 'male':
+                self.father = self.parent1
+                self.mother = _get_current_spouse(self.parent1)
+            else:
+                self.mother = self.parent1
+                # Пытаемся найти отца как текущего супруга матери
+                self.father = _get_current_spouse(self.parent1)
 
         return super().dispatch(request, *args, **kwargs)
 
@@ -226,46 +220,29 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
             is_male = self.relation in ['son', 'adopted_son']
 
             initial['gender'] = 'male' if is_male else 'female'
+            initial['father'] = self.father.pk if self.father else None
+            initial['mother'] = self.mother.pk if self.mother else None
 
             # Для биологических детей автозаполняем фамилию и отчество
-            if is_biological:
-                # Определяем отца (мужчина среди родителей)
-                father = None
-                mother = None
-                if self.parent1.gender == 'male':
-                    father = self.parent1
-                    mother = self.parent2
-                elif self.parent2 and self.parent2.gender == 'male':
-                    father = self.parent2
-                    mother = self.parent1
-                else:
-                    # Если оба одного пола или один не указан — используем parent1
-                    father = self.parent1
-
-                # Фамилия от отца (или от единственного родителя)
-                if father and father.last_name:
-                    initial['last_name'] = father.last_name
-                elif mother and mother.last_name:
-                    initial['last_name'] = mother.last_name
+            if is_biological and self.father:
+                # Фамилия от отца (склоняем по полу)
+                if self.father.last_name:
+                    initial['last_name'] = decline_lastname(self.father.last_name, 'male' if is_male else 'female',
+                                                            self.father.culture or 'ru')
 
                 # Отчество генерируется от имени отца
-                if father and father.first_name:
-                    culture = father.culture or 'ru'
-                    patronymic = generate_patronymic(father.first_name, 'male' if is_male else 'female', culture)
+                if self.father.first_name:
+                    culture = self.father.culture or 'ru'
+                    patronymic = generate_patronymic(self.father.first_name, 'male' if is_male else 'female', culture)
                     if patronymic:
                         initial['middle_name'] = patronymic
 
         # Создание супруга
         elif self.spouse_of:
-            # Пол супруга — противоположный (по умолчанию, но редактируемый)
             if self.spouse_of.gender == 'male':
                 initial['gender'] = 'female'
             elif self.spouse_of.gender == 'female':
                 initial['gender'] = 'male'
-
-        # Создание родителя
-        elif self.child:
-            pass  # Ничего не предзаполняем
 
         return initial
 
@@ -279,7 +256,7 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
         context = super().get_context_data(**kwargs)
         context['tree'] = self.tree
 
-        # Определяем заголовок формы
+        # Определяем заголовок формы и контекст
         if self.parent1 and self.relation in ['son', 'daughter', 'adopted_son', 'adopted_daughter']:
             relation_labels = {
                 'son': 'сына',
@@ -289,9 +266,17 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
             }
             context['action'] = f'Создание карточки {relation_labels[self.relation]}'
             context['parent1'] = self.parent1
-            context['parent2'] = self.parent2
-            context['relation'] = self.relation
+            context['father'] = self.father
+            context['mother'] = self.mother
             context['form_mode'] = 'child'
+        elif self.parent1 and self.relation == 'father':
+            context['action'] = 'Создание карточки отца'
+            context['child'] = self.parent1
+            context['form_mode'] = 'father'
+        elif self.parent1 and self.relation == 'mother':
+            context['action'] = 'Создание карточки матери'
+            context['child'] = self.parent1
+            context['form_mode'] = 'mother'
         elif self.spouse_of:
             context['action'] = 'Создание карточки супруга/супруги'
             context['spouse_of'] = self.spouse_of
@@ -307,12 +292,18 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
         return context
 
     def form_valid(self, form):
+        # Проверяем наличие дубликатов
+        if form.duplicates_found and not self.request.POST.get('force_create'):
+            # Возвращаем форму с предупреждением о дублях
+            context = self.get_context_data(form=form)
+            context['duplicates_found'] = form.duplicates_found
+            return self.render_to_response(self.get_template_names(), context)
+
         response = super().form_valid(form)
         person = self.object
 
-        # Создаем связи и события в зависимости от режима
+        # Режим: создание ребенка
         if self.parent1 and self.relation in ['son', 'daughter', 'adopted_son', 'adopted_daughter']:
-            # Режим: создание ребенка
             is_biological = self.relation in ['son', 'daughter']
             rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT if is_biological else RelationshipTypeEnum.ADOPTIVE_PARENT
 
@@ -324,59 +315,93 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
                 defaults={'created_by': self.request.user}
             )
 
-            # Связь parent2 → child (если указан)
-            if self.parent2:
-                Relationship.objects.get_or_create(
-                    from_person=self.parent2,
-                    to_person=person,
-                    relationship_type=rel_type,
-                    defaults={'created_by': self.request.user}
-                )
+            # Связь второго родителя → child (если указан в форме)
+            father = form.cleaned_data.get('father')
+            mother = form.cleaned_data.get('mother')
 
-            # Создаем событие "Рождение ребенка" у родителей (если указана дата рождения)
+            for parent in [father, mother]:
+                if parent and parent != self.parent1:
+                    Relationship.objects.get_or_create(
+                        from_person=parent,
+                        to_person=person,
+                        relationship_type=rel_type,
+                        defaults={'created_by': self.request.user}
+                    )
+
+            # Создаем событие "Рождение ребенка" у родителей
             if person.birth_date:
-                for parent in [self.parent1, self.parent2]:
-                    if parent:
-                        LifeEvent.objects.create(
-                            person=parent,
-                            event_type=EventTypeEnum.BIRTH_OF_CHILD,
-                            event_date=person.birth_date,
-                            location=person.birth_place,
-                            description=f'Рождение {"сына" if person.gender == "male" else "дочери"}: {person.full_name_display}',
-                            related_person=person,
-                            created_by=self.request.user
-                        )
+                all_parents = [self.parent1]
+                if father and father != self.parent1:
+                    all_parents.append(father)
+                if mother and mother != self.parent1:
+                    all_parents.append(mother)
 
-            messages.success(self.request,
-                             f'Ребенок "{person.full_name_display}" успешно создан. Связи с родителями установлены.')
+                for parent in all_parents:
+                    LifeEvent.objects.get_or_create(
+                        person=parent,
+                        event_type=EventTypeEnum.BIRTH_OF_CHILD,
+                        event_date=person.birth_date,
+                        related_person=person,
+                        defaults={
+                            'location': person.birth_place,
+                            'description': f'Рождение {"сына" if person.gender == "male" else "дочери"}: {person.full_name_display}',
+                            'created_by': self.request.user
+                        }
+                    )
 
+            messages.success(self.request, f'Ребенок "{person.full_name_display}" успешно создан.')
+
+        # Режим: создание супруга
         elif self.spouse_of:
-            # Режим: создание супруга
+            marriage_date = self.request.POST.get('marriage_date')
+            marriage_place = self.request.POST.get('marriage_place')
+
+            # Создаем связь с датой брака (если указана)
             Relationship.objects.get_or_create(
                 from_person=self.spouse_of,
                 to_person=person,
                 relationship_type=RelationshipTypeEnum.SPOUSE,
-                defaults={'created_by': self.request.user, 'is_current': True}
+                defaults={
+                    'created_by': self.request.user,
+                    'is_current': True,
+                    'start_date': marriage_date or None,
+                }
             )
-            messages.success(self.request,
-                             f'Супруг(а) "{person.full_name_display}" успешно создан(а). Связь установлена.')
+
+            # Если указана дата брака — создаем событие у обоих супругов
+            if marriage_date:
+                for spouse in [self.spouse_of, person]:
+                    LifeEvent.objects.get_or_create(
+                        person=spouse,
+                        event_type=EventTypeEnum.MARRIAGE,
+                        event_date=marriage_date,
+                        related_person=(person if spouse == self.spouse_of else self.spouse_of),
+                        defaults={
+                            'location': marriage_place,
+                            'created_by': self.request.user
+                        }
+                    )
+
+            messages.success(self.request, f'Супруг(а) "{person.full_name_display}" успешно создан(а).')
+
+        # Режим: создание родителя
+        elif self.parent1 and self.relation in ['father', 'mother']:
+            Relationship.objects.get_or_create(
+                from_person=person,
+                to_person=self.parent1,
+                relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                defaults={'created_by': self.request.user}
+            )
+            messages.success(self.request, f'Родитель "{person.full_name_display}" успешно создан.')
 
         elif self.child:
-            # Режим: создание родителя
-            # Определяем пол родителя
-            if person.gender == 'male':
-                rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT
-            else:
-                rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT
-
             Relationship.objects.get_or_create(
                 from_person=person,
                 to_person=self.child,
-                relationship_type=rel_type,
+                relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
                 defaults={'created_by': self.request.user}
             )
-            messages.success(self.request,
-                             f'Родитель "{person.full_name_display}" успешно создан. Связь с ребенком установлена.')
+            messages.success(self.request, f'Родитель "{person.full_name_display}" успешно создан.')
 
         else:
             messages.success(self.request, f'Персона "{person.full_name_display}" успешно создана.')
@@ -384,7 +409,6 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
         return response
 
     def get_success_url(self):
-        # Возвращаемся на страницу того, из карточки кого создавали
         if self.parent1:
             return reverse('genealogy:person_detail', kwargs={'pk': self.parent1.pk})
         elif self.spouse_of:
@@ -414,10 +438,18 @@ class PersonUpdateView(LoginRequiredMixin, UpdateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['tree'], context['action'] = self.tree, 'Редактирование'
+        context['tree'] = self.tree
+        context['action'] = 'Редактирование'
+        context['form_mode'] = 'edit'
         return context
 
     def form_valid(self, form):
+        # Проверяем дубликаты
+        if form.duplicates_found and not self.request.POST.get('force_create'):
+            context = self.get_context_data(form=form)
+            context['duplicates_found'] = form.duplicates_found
+            return self.render_to_response(self.get_template_names(), context)
+
         response = super().form_valid(form)
         messages.success(self.request, f'Персона "{self.object.full_name_display}" успешно обновлена.')
         return response
@@ -478,12 +510,16 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
         context['user_role'] = collaborator.get_role_display() if collaborator else (
             'Администратор' if user.is_superuser else 'Гость')
 
+        # Определяем родителей для отображения
+        parents = person.get_parents()
+        context['father'] = next((p for p in parents if p.gender == 'male'), None)
+        context['mother'] = next((p for p in parents if p.gender == 'female'), None)
+
         # Формируем список ближайших родственников
         close_relatives = []
 
         # Родители
-        for p in person.get_parents():
-            # Определяем тип связи (родной/приемный)
+        for p in parents:
             rel = Relationship.objects.filter(
                 from_person=p, to_person=person,
                 relationship_type__in=[RelationshipTypeEnum.BIOLOGICAL_PARENT, RelationshipTypeEnum.ADOPTIVE_PARENT,
@@ -515,18 +551,12 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
                 close_relatives.append({'person': c, 'relation': rel_type})
 
         # Супруги/Партнеры
-        spouse_rels = Relationship.objects.filter(
-            Q(from_person=person, relationship_type__in=[RelationshipTypeEnum.SPOUSE, RelationshipTypeEnum.EX_SPOUSE,
-                                                         RelationshipTypeEnum.FIANCE]) |
-            Q(to_person=person, relationship_type__in=[RelationshipTypeEnum.SPOUSE, RelationshipTypeEnum.EX_SPOUSE,
-                                                       RelationshipTypeEnum.FIANCE])
-        ).distinct()
-
-        for rel in spouse_rels:
-            partner = rel.to_person if rel.from_person == person else rel.from_person
-            if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
+        for spouse_info in person.get_spouses():
+            partner = spouse_info['person']
+            rel_type_rel = spouse_info['relationship']
+            if spouse_info['type'] == RelationshipTypeEnum.SPOUSE:
                 rel_type = "Партнер (Официальный брак)"
-            elif rel.relationship_type == RelationshipTypeEnum.EX_SPOUSE:
+            elif spouse_info['type'] == RelationshipTypeEnum.EX_SPOUSE:
                 rel_type = "Бывший партнер"
             else:
                 rel_type = "Жених/Невеста"

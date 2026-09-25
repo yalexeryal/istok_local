@@ -68,6 +68,18 @@
             <h2 class="text-xl font-semibold text-gray-900">Ближайшие родственники</h2>
             {% if can_edit %}
                 <div class="flex flex-wrap gap-2">
+                    {% if not father %}
+                        <a href="{% url 'genealogy:person_create' tree.pk %}?parent1_id={{ person.pk }}&relation=father"
+                           class="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition text-sm font-medium">
+                            + Отец
+                        </a>
+                    {% endif %}
+                    {% if not mother %}
+                        <a href="{% url 'genealogy:person_create' tree.pk %}?parent1_id={{ person.pk }}&relation=mother"
+                           class="px-3 py-1.5 bg-pink-50 text-pink-700 rounded-md hover:bg-pink-100 transition text-sm font-medium">
+                            + Мать
+                        </a>
+                    {% endif %}
                     <a href="{% url 'genealogy:person_create' tree.pk %}?parent1_id={{ person.pk }}&relation=son"
                        class="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition text-sm font-medium">
                         + Сын
@@ -135,6 +147,8 @@
                                 </div>
                                 {% if item.date %}
                                     <div class="text-sm text-gray-500">{{ item.date|date:"d E Y" }}</div>
+                                {% else %}
+                                    <div class="text-sm text-gray-400 italic">Дата не указана</div>
                                 {% endif %}
                                 {% if item.location %}
                                     <div class="text-sm text-gray-600 mt-1">📍 {{ item.location }}</div>
