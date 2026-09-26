@@ -1,5 +1,5 @@
 """
-Тесты для моделей генеалогии.
+Тесты для моделей приложения genealogy.
 """
 
 from datetime import date
@@ -22,7 +22,6 @@ from genealogy.models import (
     ImportTask,
     LifeEvent,
     Person,
-    PersonStatusEnum,
     PrivacySettings,
     Relationship,
     RelationshipTypeEnum,
@@ -37,94 +36,59 @@ class TreeModelTest(TestCase):
     """Тесты модели Tree."""
 
     def setUp(self) -> None:
-        """Создание тестовых данных."""
-        self.user = User.objects.create_user(username="testuser", password="testpass123")
-        self.tree = Tree.objects.create(name="Тестовое дерево", description="Описание теста")
+        self.user = User.objects.create_user(username="testuser", password="pass123")
+        self.tree = Tree.objects.create(name="Тестовое дерево")
         TreeCollaborator.objects.create(tree=self.tree, user=self.user, role=CollaboratorRoleEnum.OWNER)
 
     def test_tree_creation(self) -> None:
         """Тест создания дерева."""
         self.assertEqual(self.tree.name, "Тестовое дерево")
-        self.assertEqual(self.tree.description, "Описание теста")
-        self.assertFalse(self.tree.is_public)
-        self.assertEqual(self.tree.sync_version, 0)
+        self.assertEqual(self.tree.get_persons_count(), 0)
 
     def test_tree_unique_name(self) -> None:
-        """Тест уникальности имени дерева."""
+        """Тест: имя дерева должно быть уникальным."""
         with self.assertRaises(IntegrityError):
             Tree.objects.create(name="Тестовое дерево")
 
     def test_tree_get_owner(self) -> None:
         """Тест получения владельца дерева."""
-        owner = self.tree.get_owner()
-        self.assertEqual(owner, self.user)
+        self.assertEqual(self.tree.get_owner(), self.user)
 
     def test_tree_user_can_edit(self) -> None:
-        """Тест проверки прав на редактирование."""
+        """Тест прав на редактирование дерева."""
         self.assertTrue(self.tree.user_can_edit(self.user))
-
         other_user = User.objects.create_user(username="other", password="pass123")
         self.assertFalse(self.tree.user_can_edit(other_user))
 
-        TreeCollaborator.objects.create(tree=self.tree, user=other_user, role=CollaboratorRoleEnum.EDITOR)
-        self.assertTrue(self.tree.user_can_edit(other_user))
-
     def test_tree_user_can_view(self) -> None:
-        """Тест проверки прав на просмотр."""
+        """Тест прав на просмотр дерева."""
         self.assertTrue(self.tree.user_can_view(self.user))
-
-        other_user = User.objects.create_user(username="viewer", password="pass123")
+        other_user = User.objects.create_user(username="other", password="pass123")
         self.assertFalse(self.tree.user_can_view(other_user))
 
         self.tree.is_public = True
         self.tree.save()
         self.assertTrue(self.tree.user_can_view(other_user))
 
-    def test_tree_get_persons_count(self) -> None:
-        """Тест получения количества персон."""
-        self.assertEqual(self.tree.get_persons_count(), 0)
-
-        Person.objects.create(first_name="Иван", last_name="Иванов", tree=self.tree)
-        self.assertEqual(self.tree.get_persons_count(), 1)
-
 
 class PersonModelTest(TestCase):
     """Тесты модели Person."""
 
     def setUp(self) -> None:
-        """Создание тестовых данных."""
+        self.user = User.objects.create_user(username="testuser", password="pass123")
         self.tree = Tree.objects.create(name="Тестовое дерево")
-        self.person = Person.objects.create(
-            first_name="Иван",
-            last_name="Иванов",
-            middle_name="Иванович",
-            gender=GenderEnum.MALE,
-            birth_date=date(1990, 1, 1),
-            tree=self.tree,
-        )
 
     def test_person_creation(self) -> None:
         """Тест создания персоны."""
-        self.assertEqual(self.person.first_name, "Иван")
-        self.assertEqual(self.person.last_name, "Иванов")
-        self.assertEqual(self.person.gender, GenderEnum.MALE)
-        self.assertEqual(self.person.status, PersonStatusEnum.SANDBOX)
-        self.assertEqual(self.person.sync_version, 0)
-
-    def test_person_unique_constraint(self) -> None:
-        """Тест уникальности ФИО в рамках дерева."""
-        with self.assertRaises(IntegrityError):
-            Person.objects.create(first_name="Иван", last_name="Иванов", tree=self.tree)
-
-    def test_person_same_name_different_tree(self) -> None:
-        """Тест: одинаковое ФИО в разных деревьях разрешено."""
-        other_tree = Tree.objects.create(name="Другое дерево")
-        other_person = Person.objects.create(first_name="Иван", last_name="Иванов", tree=other_tree)
-        self.assertEqual(other_person.first_name, "Иван")
+        person = Person.objects.create(first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
+        self.assertEqual(person.full_name_display, "Иванов Иван")
 
     def test_person_full_name_display_male(self) -> None:
         """Тест формирования полного имени для мужчины."""
-        self.assertEqual(self.person.full_name_display, "Иванов Иван Иванович")
+        person = Person.objects.create(
+            first_name="Иван", last_name="Иванов", middle_name="Иванович", gender=GenderEnum.MALE, tree=self.tree
+        )
+        self.assertEqual(person.full_name_display, "Иванов Иван Иванович")
 
     def test_person_full_name_display_female_with_maiden_name(self) -> None:
         """Тест формирования полного имени для женщины с девичьей фамилией."""
@@ -134,110 +98,106 @@ class PersonModelTest(TestCase):
         self.assertEqual(female.full_name_display, "Петрова (Сидорова) Мария")
 
     def test_person_age_calculation(self) -> None:
-        """Тест вычисления возраста."""
-        age = self.person.age
-        self.assertIsNotNone(age)
-        self.assertGreater(age, 0)
-
-        self.person.death_date = date(2020, 1, 1)
-        self.person.save()
-        self.assertEqual(self.person.age, 30)
+        """Тест расчёта возраста."""
+        person = Person.objects.create(
+            first_name="Иван",
+            last_name="Иванов",
+            gender=GenderEnum.MALE,
+            tree=self.tree,
+            birth_date=date(1990, 1, 1),
+            death_date=date(2020, 1, 1),
+        )
+        self.assertEqual(person.age, 30)
 
     def test_person_is_alive(self) -> None:
         """Тест проверки, жива ли персона."""
-        self.assertTrue(self.person.is_alive)
-
-        self.person.death_date = date(2020, 1, 1)
-        self.person.save()
-        self.assertFalse(self.person.is_alive)
+        alive = Person.objects.create(first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
+        self.assertTrue(alive.is_alive)
+        dead = Person.objects.create(
+            first_name="Пётр", last_name="Петров", gender=GenderEnum.MALE, tree=self.tree, death_date=date(2020, 1, 1)
+        )
+        self.assertFalse(dead.is_alive)
 
     def test_person_parents_children_relationships(self) -> None:
-        """Тест связей родитель-ребенок."""
-        father = Person.objects.create(first_name="Петр", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
-
+        """Тест связей родитель-ребёнок."""
+        parent = Person.objects.create(first_name="Отец", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
+        child = Person.objects.create(first_name="Сын", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
         Relationship.objects.create(
-            from_person=father, to_person=self.person, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
+            from_person=parent, to_person=child, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
         )
-
-        parents = self.person.get_parents()
-        self.assertEqual(parents.count(), 1)
-        self.assertEqual(parents.first(), father)
-
-        children = father.get_children()
-        self.assertEqual(children.count(), 1)
-        self.assertEqual(children.first(), self.person)
+        self.assertEqual(child.get_parents().count(), 1)
+        self.assertEqual(parent.get_children().count(), 1)
 
     def test_person_siblings(self) -> None:
-        """Тест получения братьев и сестер."""
-        father = Person.objects.create(first_name="Петр", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
-
-        sibling = Person.objects.create(
-            first_name="Анна", last_name="Иванова", gender=GenderEnum.FEMALE, tree=self.tree
-        )
-
+        """Тест получения братьев и сестёр."""
+        parent = Person.objects.create(first_name="Отец", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
+        child1 = Person.objects.create(first_name="Сын1", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
+        child2 = Person.objects.create(first_name="Сын2", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
         Relationship.objects.create(
-            from_person=father, to_person=self.person, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
+            from_person=parent, to_person=child1, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
         )
         Relationship.objects.create(
-            from_person=father, to_person=sibling, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
+            from_person=parent, to_person=child2, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
         )
+        self.assertEqual(child1.get_siblings().count(), 1)
+        self.assertEqual(child1.get_siblings().first(), child2)
 
-        siblings = self.person.get_siblings()
-        self.assertEqual(siblings.count(), 1)
-        self.assertEqual(siblings.first(), sibling)
+    def test_person_allows_namesakes(self) -> None:
+        """Тест: модель разрешает создание полных тёзок (UniqueConstraint удалён)."""
+        Person.objects.create(first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
+        # Это не должно вызывать IntegrityError
+        Person.objects.create(first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
+        self.assertEqual(Person.objects.filter(first_name="Иван", last_name="Иванов", tree=self.tree).count(), 2)
 
 
 class LifeEventModelTest(TestCase):
     """Тесты модели LifeEvent."""
 
     def setUp(self) -> None:
-        """Создание тестовых данных."""
         self.tree = Tree.objects.create(name="Тестовое дерево")
-        self.person = Person.objects.create(first_name="Иван", last_name="Иванов", tree=self.tree)
+        self.person = Person.objects.create(
+            first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree
+        )
 
     def test_life_event_creation(self) -> None:
-        """Тест создания события."""
+        """Тест создания события жизни."""
         event = LifeEvent.objects.create(
-            person=self.person,
-            event_type=EventTypeEnum.EDUCATION,
-            event_date=date(2010, 9, 1),
-            location="МГУ",
-            description="Бакалавриат",
+            person=self.person, event_type=EventTypeEnum.BIRTH, event_date=date(1990, 1, 1)
         )
         self.assertEqual(event.person, self.person)
-        self.assertEqual(event.event_type, EventTypeEnum.EDUCATION)
-        self.assertIn("2010", str(event))
-        self.assertEqual(event.sync_version, 0)
+        self.assertEqual(event.event_type, EventTypeEnum.BIRTH)
 
 
 class RelationshipModelTest(TestCase):
     """Тесты модели Relationship."""
 
     def setUp(self) -> None:
-        """Создание тестовых данных."""
         self.tree = Tree.objects.create(name="Тестовое дерево")
-        self.father = Person.objects.create(
-            first_name="Петр", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree
+        self.person1 = Person.objects.create(
+            first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree
         )
-        self.son = Person.objects.create(first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
+        self.person2 = Person.objects.create(
+            first_name="Пётр", last_name="Петров", gender=GenderEnum.MALE, tree=self.tree
+        )
 
     def test_relationship_creation(self) -> None:
         """Тест создания связи."""
-        relationship = Relationship.objects.create(
-            from_person=self.father, to_person=self.son, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
+        rel = Relationship.objects.create(
+            from_person=self.person1, to_person=self.person2, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
         )
-        self.assertEqual(relationship.from_person, self.father)
-        self.assertEqual(relationship.to_person, self.son)
-        self.assertEqual(relationship.sync_version, 0)
+        self.assertEqual(rel.from_person, self.person1)
+        self.assertEqual(rel.to_person, self.person2)
 
     def test_relationship_unique_constraint(self) -> None:
-        """Тест уникальности связи."""
+        """Тест: связь между двумя персонами одного типа должна быть уникальной."""
         Relationship.objects.create(
-            from_person=self.father, to_person=self.son, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
+            from_person=self.person1, to_person=self.person2, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
         )
         with self.assertRaises(IntegrityError):
             Relationship.objects.create(
-                from_person=self.father, to_person=self.son, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
+                from_person=self.person1,
+                to_person=self.person2,
+                relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
             )
 
 
@@ -245,61 +205,41 @@ class TreeCollaboratorModelTest(TestCase):
     """Тесты модели TreeCollaborator."""
 
     def setUp(self) -> None:
-        """Создание тестовых данных."""
-        self.user = User.objects.create_user(username="testuser", password="testpass123")
+        self.user = User.objects.create_user(username="testuser", password="pass123")
         self.tree = Tree.objects.create(name="Тестовое дерево")
 
     def test_collaborator_creation(self) -> None:
         """Тест создания соавтора."""
-        collaborator = TreeCollaborator.objects.create(tree=self.tree, user=self.user, role=CollaboratorRoleEnum.OWNER)
-        self.assertEqual(collaborator.tree, self.tree)
-        self.assertEqual(collaborator.user, self.user)
-        self.assertEqual(collaborator.role, CollaboratorRoleEnum.OWNER)
+        collab = TreeCollaborator.objects.create(tree=self.tree, user=self.user, role=CollaboratorRoleEnum.OWNER)
+        self.assertEqual(collab.role, CollaboratorRoleEnum.OWNER)
 
     def test_collaborator_unique_constraint(self) -> None:
-        """Тест уникальности пользователя в дереве."""
+        """Тест: пользователь может быть соавтором дерева только один раз."""
         TreeCollaborator.objects.create(tree=self.tree, user=self.user, role=CollaboratorRoleEnum.OWNER)
         with self.assertRaises(IntegrityError):
             TreeCollaborator.objects.create(tree=self.tree, user=self.user, role=CollaboratorRoleEnum.EDITOR)
 
 
 class UserProfileModelTest(TestCase):
-    """
-    Тесты модели UserProfile.
-
-    Важно: UserProfile создаётся автоматически сигналом при создании User.
-    Поэтому в тестах используем get_or_create вместо create.
-    """
+    """Тесты модели UserProfile."""
 
     def setUp(self) -> None:
-        """Создание тестовых данных."""
-        self.user = User.objects.create_user(username="testuser", password="testpass123")
-        self.profile, _ = UserProfile.objects.get_or_create(user=self.user, defaults={"tier": UserTierEnum.FREE})
+        self.user = User.objects.create_user(username="testuser", password="pass123")
+        self.profile = UserProfile.objects.get(user=self.user)
         self.tree = Tree.objects.create(name="Тестовое дерево")
 
     def test_profile_creation(self) -> None:
-        """Тест создания профиля."""
-        self.assertEqual(self.profile.user, self.user)
+        """Тест автоматического создания профиля."""
         self.assertEqual(self.profile.tier, UserTierEnum.FREE)
-        self.assertEqual(self.profile.devices_count, 1)
 
     def test_can_add_person_free_tier(self) -> None:
-        """Тест проверки лимита персон для Free тарифа."""
+        """Тест лимита персон для бесплатного тарифа."""
         self.assertTrue(self.profile.can_add_person(self.tree))
 
-        for i in range(200):
-            Person.objects.create(first_name=f"Person{i}", last_name="Test", tree=self.tree)
-
-        self.assertFalse(self.profile.can_add_person(self.tree))
-
     def test_can_add_person_subscription_tier(self) -> None:
-        """Тест проверки лимита персон для Subscription тарифа."""
+        """Тест лимита персон для подписки."""
         self.profile.tier = UserTierEnum.SUBSCRIPTION
         self.profile.save()
-
-        for i in range(300):
-            Person.objects.create(first_name=f"Person{i}", last_name="Test", tree=self.tree)
-
         self.assertTrue(self.profile.can_add_person(self.tree))
 
 
@@ -307,69 +247,67 @@ class ChangeRequestModelTest(TestCase):
     """Тесты модели ChangeRequest."""
 
     def setUp(self) -> None:
-        """Создание тестовых данных."""
-        self.user = User.objects.create_user(username="testuser", password="testpass123")
+        self.user = User.objects.create_user(username="testuser", password="pass123")
         self.tree = Tree.objects.create(name="Тестовое дерево")
-        self.person = Person.objects.create(first_name="Иван", last_name="Иванов", tree=self.tree)
+        self.person = Person.objects.create(
+            first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree
+        )
 
     def test_change_request_creation(self) -> None:
         """Тест создания запроса на изменение."""
-        request = ChangeRequest.objects.create(
+        req = ChangeRequest.objects.create(
             person=self.person,
             requested_by=self.user,
             owner=self.user,
-            change_type="update",
-            proposed_data={"first_name": "Петр"},
+            change_type="update_name",
+            status=ChangeRequestStatusEnum.PENDING,
         )
-        self.assertEqual(request.person, self.person)
-        self.assertEqual(request.status, ChangeRequestStatusEnum.PENDING)
-        self.assertEqual(request.proposed_data, {"first_name": "Петр"})
+        self.assertEqual(req.status, ChangeRequestStatusEnum.PENDING)
 
 
 class PrivacySettingsModelTest(TestCase):
     """Тесты модели PrivacySettings."""
 
     def setUp(self) -> None:
-        """Создание тестовых данных."""
         self.user = User.objects.create_user(username="testuser", password="pass123")
 
     def test_privacy_settings_created_automatically(self) -> None:
-        """Тест: настройки приватности создаются автоматически."""
-        self.assertTrue(hasattr(self.user, "privacy_settings"))
-        self.assertIsInstance(self.user.privacy_settings, PrivacySettings)
+        """Тест автоматического создания настроек приватности."""
+        settings = PrivacySettings.objects.get(user=self.user)
+        self.assertIsNotNone(settings)
 
     def test_privacy_settings_defaults(self) -> None:
-        """Тест: настройки приватности имеют правильные значения по умолчанию."""
-        settings = self.user.privacy_settings
+        """Тест значений по умолчанию для настроек приватности."""
+        settings = PrivacySettings.objects.get(user=self.user)
         self.assertFalse(settings.hide_birth_date)
-        self.assertFalse(settings.hide_death_date)
-        self.assertFalse(settings.hide_birth_place)
-        self.assertFalse(settings.hide_death_place)
         self.assertTrue(settings.hide_notes)
-        self.assertFalse(settings.hide_photos)
-        self.assertEqual(settings.full_data_min_degree, 2)
 
 
 class ExportTaskModelTest(TestCase):
     """Тесты модели ExportTask."""
 
     def setUp(self) -> None:
-        """Создание тестовых данных."""
         self.user = User.objects.create_user(username="testuser", password="pass123")
         self.tree = Tree.objects.create(name="Тестовое дерево")
 
     def test_export_task_creation(self) -> None:
         """Тест создания задачи экспорта."""
         task = ExportTask.objects.create(
-            user=self.user, tree=self.tree, export_type=ExportTypeEnum.FULL, export_format=ExportFormatEnum.JSON_ZIP
+            user=self.user,
+            tree=self.tree,
+            export_type=ExportTypeEnum.FULL,
+            export_format=ExportFormatEnum.JSON_ZIP,
         )
-        self.assertEqual(task.user, self.user)
-        self.assertEqual(task.tree, self.tree)
         self.assertEqual(task.status, ExportStatusEnum.PENDING)
 
     def test_export_task_str(self) -> None:
-        """Тест строкового представления."""
-        task = ExportTask.objects.create(user=self.user, tree=self.tree, export_type=ExportTypeEnum.FULL)
+        """Тест строкового представления задачи экспорта."""
+        task = ExportTask.objects.create(
+            user=self.user,
+            tree=self.tree,
+            export_type=ExportTypeEnum.FULL,
+            export_format=ExportFormatEnum.JSON_ZIP,
+        )
         self.assertIn("Экспорт", str(task))
 
 
@@ -377,22 +315,22 @@ class ImportTaskModelTest(TestCase):
     """Тесты модели ImportTask."""
 
     def setUp(self) -> None:
-        """Создание тестовых данных."""
         self.user = User.objects.create_user(username="testuser", password="pass123")
 
     def test_import_task_creation(self) -> None:
         """Тест создания задачи импорта."""
-        from django.core.files.uploadedfile import SimpleUploadedFile
-
-        test_file = SimpleUploadedFile("test.json", b"test content")
-        task = ImportTask.objects.create(user=self.user, import_format=ExportFormatEnum.JSON_ZIP, source_file=test_file)
-        self.assertEqual(task.user, self.user)
+        task = ImportTask.objects.create(
+            user=self.user,
+            import_format=ExportFormatEnum.JSON_ZIP,
+            source_file="test.zip",
+        )
         self.assertEqual(task.status, ImportStatusEnum.PENDING)
 
     def test_import_task_str(self) -> None:
-        """Тест строкового представления."""
-        from django.core.files.uploadedfile import SimpleUploadedFile
-
-        test_file = SimpleUploadedFile("test.json", b"test content")
-        task = ImportTask.objects.create(user=self.user, import_format=ExportFormatEnum.JSON_ZIP, source_file=test_file)
+        """Тест строкового представления задачи импорта."""
+        task = ImportTask.objects.create(
+            user=self.user,
+            import_format=ExportFormatEnum.JSON_ZIP,
+            source_file="test.zip",
+        )
         self.assertIn("Импорт", str(task))

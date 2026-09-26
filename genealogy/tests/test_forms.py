@@ -5,13 +5,8 @@
 from django.contrib.auth.models import User
 from django.test import TestCase
 
-from genealogy.forms import (
-    LifeEventForm,
-    PersonForm,
-    RelationshipForm,
-)
+from genealogy.forms import LifeEventForm, PersonForm, RelationshipForm
 from genealogy.models import (
-    CollaboratorRoleEnum,
     EventTypeEnum,
     GenderEnum,
     LifeEvent,
@@ -19,7 +14,6 @@ from genealogy.models import (
     Relationship,
     RelationshipTypeEnum,
     Tree,
-    TreeCollaborator,
 )
 
 
@@ -29,25 +23,34 @@ class PersonFormTest(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="testuser", password="pass123")
         self.tree = Tree.objects.create(name="Тестовое дерево")
-        TreeCollaborator.objects.create(tree=self.tree, user=self.user, role=CollaboratorRoleEnum.OWNER)
+        self.person = Person.objects.create(
+            first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree
+        )
 
     def test_valid_form(self) -> None:
+        """Тест: валидная форма сохраняется успешно."""
         data = {
-            "first_name": "Иван",
-            "last_name": "Иванов",
+            "first_name": "Пётр",
+            "last_name": "Петров",
             "gender": GenderEnum.MALE,
             "birth_date": "1990-01-01",
         }
         form = PersonForm(data=data, tree=self.tree, user=self.user)
         self.assertTrue(form.is_valid())
+        person = form.save()
+        self.assertEqual(person.first_name, "Пётр")
+        self.assertEqual(person.updated_by, self.user)
 
     def test_required_fields(self) -> None:
-        data = {"last_name": "Иванов", "gender": GenderEnum.MALE}
+        """Тест: обязательные поля first_name и gender."""
+        data = {"last_name": "Иванов"}
         form = PersonForm(data=data, tree=self.tree, user=self.user)
         self.assertFalse(form.is_valid())
         self.assertIn("first_name", form.errors)
+        self.assertIn("gender", form.errors)
 
     def test_unique_name_in_tree(self) -> None:
+        """Тест: форма предупреждает о дубликате, но остаётся валидной для принудительного создания."""
         Person.objects.create(first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
         data = {
             "first_name": "Иван",
@@ -55,31 +58,33 @@ class PersonFormTest(TestCase):
             "gender": GenderEnum.MALE,
         }
         form = PersonForm(data=data, tree=self.tree, user=self.user)
-        self.assertFalse(form.is_valid())
-        self.assertIn("__all__", form.errors)
+        self.assertTrue(form.is_valid())
+        self.assertIsNotNone(form.exact_duplicate)
+        self.assertEqual(form.exact_duplicate.first_name, "Иван")
 
     def test_same_name_different_tree(self) -> None:
-        other_tree = Tree.objects.create(name="Другое дерево")
-        Person.objects.create(first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=other_tree)
+        """Тест: одинаковые имена разрешены в разных деревьях."""
+        tree2 = Tree.objects.create(name="Другое дерево")
         data = {
             "first_name": "Иван",
             "last_name": "Иванов",
             "gender": GenderEnum.MALE,
         }
-        form = PersonForm(data=data, tree=self.tree, user=self.user)
+        form = PersonForm(data=data, tree=tree2, user=self.user)
         self.assertTrue(form.is_valid())
 
     def test_edit_same_person_allowed(self) -> None:
-        person = Person.objects.create(first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
+        """Тест: редактирование существующей персоны не считается дубликатом."""
         data = {
             "first_name": "Иван",
             "last_name": "Иванов",
             "gender": GenderEnum.MALE,
         }
-        form = PersonForm(data=data, instance=person, tree=self.tree, user=self.user)
+        form = PersonForm(data=data, instance=self.person, tree=self.tree, user=self.user)
         self.assertTrue(form.is_valid())
 
     def test_death_before_birth_invalid(self) -> None:
+        """Тест: дата смерти не может быть раньше даты рождения."""
         data = {
             "first_name": "Иван",
             "last_name": "Иванов",
@@ -92,50 +97,54 @@ class PersonFormTest(TestCase):
         self.assertIn("death_date", form.errors)
 
     def test_maiden_name_only_for_female(self) -> None:
+        """Тест: девичья фамилия только для женщин."""
         data = {
             "first_name": "Иван",
             "last_name": "Иванов",
             "gender": GenderEnum.MALE,
-            "maiden_name": "Петрова",
+            "maiden_name": "Сидорова",
         }
         form = PersonForm(data=data, tree=self.tree, user=self.user)
         self.assertFalse(form.is_valid())
         self.assertIn("maiden_name", form.errors)
 
     def test_maiden_name_for_female_allowed(self) -> None:
+        """Тест: девичья фамилия разрешена для женщин."""
         data = {
             "first_name": "Мария",
-            "last_name": "Петрова",
+            "last_name": "Иванова",
             "gender": GenderEnum.FEMALE,
             "maiden_name": "Сидорова",
         }
         form = PersonForm(data=data, tree=self.tree, user=self.user)
         self.assertTrue(form.is_valid())
 
-    def test_save_sets_updated_by(self) -> None:
-        data = {
-            "first_name": "Иван",
-            "last_name": "Иванов",
-            "gender": GenderEnum.MALE,
-        }
-        form = PersonForm(data=data, tree=self.tree, user=self.user)
-        self.assertTrue(form.is_valid())
-        person = form.save()
-        self.assertEqual(person.updated_by, self.user)
-
     def test_save_increments_sync_version(self) -> None:
-        person = Person.objects.create(first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
-        initial_version = person.sync_version
-        data = {
-            "first_name": "Иван",
-            "last_name": "Иванов",
-            "gender": GenderEnum.MALE,
-            "middle_name": "Иванович",
-        }
-        form = PersonForm(data=data, instance=person, tree=self.tree, user=self.user)
+        """Тест: сохранение увеличивает версию синхронизации."""
+        self.assertEqual(self.person.sync_version, 0)
+        form = PersonForm(
+            instance=self.person,
+            data={"first_name": "Иван", "gender": GenderEnum.MALE},
+            tree=self.tree,
+            user=self.user,
+        )
         self.assertTrue(form.is_valid())
-        updated_person = form.save()
-        self.assertEqual(updated_person.sync_version, initial_version + 1)
+        form.save()
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.sync_version, 1)
+
+    def test_save_sets_updated_by(self) -> None:
+        """Тест: сохранение устанавливает пользователя, обновившего запись."""
+        form = PersonForm(
+            instance=self.person,
+            data={"first_name": "Иван", "gender": GenderEnum.MALE},
+            tree=self.tree,
+            user=self.user,
+        )
+        self.assertTrue(form.is_valid())
+        form.save()
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.updated_by, self.user)
 
 
 class RelationshipFormTest(TestCase):
@@ -144,59 +153,70 @@ class RelationshipFormTest(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="testuser", password="pass123")
         self.tree = Tree.objects.create(name="Тестовое дерево")
-        TreeCollaborator.objects.create(tree=self.tree, user=self.user, role=CollaboratorRoleEnum.OWNER)
-        self.father = Person.objects.create(
-            first_name="Пётр", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree
+        self.person1 = Person.objects.create(
+            first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree
         )
-        self.son = Person.objects.create(first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree)
+        self.person2 = Person.objects.create(
+            first_name="Пётр", last_name="Петров", gender=GenderEnum.MALE, tree=self.tree
+        )
 
     def test_valid_relationship_form(self) -> None:
+        """Тест: валидная форма связи сохраняется успешно."""
         data = {
-            "from_person": self.father.pk,
-            "to_person": self.son.pk,
+            "from_person": self.person1.pk,
+            "to_person": self.person2.pk,
             "relationship_type": RelationshipTypeEnum.BIOLOGICAL_PARENT,
         }
         form = RelationshipForm(data=data, tree=self.tree, user=self.user)
         self.assertTrue(form.is_valid())
+        rel = form.save()
+        self.assertEqual(rel.from_person, self.person1)
+        self.assertEqual(rel.created_by, self.user)
 
     def test_required_fields(self) -> None:
-        data = {"relationship_type": RelationshipTypeEnum.BIOLOGICAL_PARENT}
+        """Тест: обязательные поля from_person, to_person, relationship_type."""
+        data = {}
         form = RelationshipForm(data=data, tree=self.tree, user=self.user)
         self.assertFalse(form.is_valid())
         self.assertIn("from_person", form.errors)
         self.assertIn("to_person", form.errors)
+        self.assertIn("relationship_type", form.errors)
 
     def test_same_tree_validation(self) -> None:
-        other_tree = Tree.objects.create(name="Другое дерево")
-        other_person = Person.objects.create(
-            first_name="Мария", last_name="Петрова", gender=GenderEnum.FEMALE, tree=other_tree
-        )
+        """Тест: обе персоны должны быть из одного дерева."""
+        tree2 = Tree.objects.create(name="Другое дерево")
+        person3 = Person.objects.create(first_name="Анна", last_name="Анна", gender=GenderEnum.FEMALE, tree=tree2)
         data = {
-            "from_person": self.father.pk,
-            "to_person": other_person.pk,
-            "relationship_type": RelationshipTypeEnum.SPOUSE,
+            "from_person": self.person1.pk,
+            "to_person": person3.pk,
+            "relationship_type": RelationshipTypeEnum.BIOLOGICAL_PARENT,
         }
         form = RelationshipForm(data=data, tree=self.tree, user=self.user)
         self.assertFalse(form.is_valid())
+        # Ошибка будет в поле to_person, так как его нет в queryset текущего дерева
         self.assertIn("to_person", form.errors)
 
     def test_self_relationship_invalid(self) -> None:
+        """Тест: нельзя создать связь персоны с самой собой."""
         data = {
-            "from_person": self.father.pk,
-            "to_person": self.father.pk,
-            "relationship_type": RelationshipTypeEnum.SPOUSE,
+            "from_person": self.person1.pk,
+            "to_person": self.person1.pk,
+            "relationship_type": RelationshipTypeEnum.BIOLOGICAL_PARENT,
         }
         form = RelationshipForm(data=data, tree=self.tree, user=self.user)
         self.assertFalse(form.is_valid())
         self.assertIn("__all__", form.errors)
 
     def test_duplicate_relationship_invalid(self) -> None:
+        """Тест: нельзя создать дублирующуюся связь того же типа."""
         Relationship.objects.create(
-            from_person=self.father, to_person=self.son, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
+            from_person=self.person1,
+            to_person=self.person2,
+            relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
         )
         data = {
-            "from_person": self.father.pk,
-            "to_person": self.son.pk,
+            "from_person": self.person1.pk,
+            "to_person": self.person2.pk,
             "relationship_type": RelationshipTypeEnum.BIOLOGICAL_PARENT,
         }
         form = RelationshipForm(data=data, tree=self.tree, user=self.user)
@@ -204,27 +224,32 @@ class RelationshipFormTest(TestCase):
         self.assertIn("__all__", form.errors)
 
     def test_different_relationship_type_allowed(self) -> None:
+        """Тест: разные типы связей между теми же персонами разрешены."""
         Relationship.objects.create(
-            from_person=self.father, to_person=self.son, relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT
+            from_person=self.person1,
+            to_person=self.person2,
+            relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
         )
         data = {
-            "from_person": self.father.pk,
-            "to_person": self.son.pk,
-            "relationship_type": RelationshipTypeEnum.GUARDIAN,
+            "from_person": self.person1.pk,
+            "to_person": self.person2.pk,
+            "relationship_type": RelationshipTypeEnum.STEP_PARENT,
         }
         form = RelationshipForm(data=data, tree=self.tree, user=self.user)
         self.assertTrue(form.is_valid())
 
     def test_save_sets_created_by(self) -> None:
+        """Тест: сохранение устанавливает пользователя, создавшего запись."""
         data = {
-            "from_person": self.father.pk,
-            "to_person": self.son.pk,
+            "from_person": self.person1.pk,
+            "to_person": self.person2.pk,
             "relationship_type": RelationshipTypeEnum.BIOLOGICAL_PARENT,
         }
         form = RelationshipForm(data=data, tree=self.tree, user=self.user)
         self.assertTrue(form.is_valid())
-        relationship = form.save()
-        self.assertEqual(relationship.created_by, self.user)
+        form.save()
+        rel = Relationship.objects.get(from_person=self.person1, to_person=self.person2)
+        self.assertEqual(rel.created_by, self.user)
 
 
 class LifeEventFormTest(TestCase):
@@ -233,43 +258,45 @@ class LifeEventFormTest(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="testuser", password="pass123")
         self.tree = Tree.objects.create(name="Тестовое дерево")
-        TreeCollaborator.objects.create(tree=self.tree, user=self.user, role=CollaboratorRoleEnum.OWNER)
         self.person = Person.objects.create(
             first_name="Иван", last_name="Иванов", gender=GenderEnum.MALE, tree=self.tree
         )
         self.related_person = Person.objects.create(
-            first_name="Мария", last_name="Иванова", gender=GenderEnum.FEMALE, tree=self.tree
+            first_name="Пётр", last_name="Петров", gender=GenderEnum.MALE, tree=self.tree
         )
 
     def test_valid_event_form(self) -> None:
+        """Тест: валидная форма события сохраняется успешно."""
         data = {
-            "event_type": EventTypeEnum.EDUCATION,
-            "event_date": "2010-09-01",
-            "location": "МГУ",
-            "description": "Бакалавриат",
+            "event_type": EventTypeEnum.BIRTH,
+            "event_date": "1990-01-01",
         }
         form = LifeEventForm(data=data, person=self.person, tree=self.tree, user=self.user)
         self.assertTrue(form.is_valid())
+        event = form.save()
+        self.assertEqual(event.person, self.person)
+        self.assertEqual(event.created_by, self.user)
 
     def test_required_event_type(self) -> None:
-        data = {
-            "event_date": "2010-09-01",
-        }
+        """Тест: event_type является обязательным полем."""
+        data = {"event_date": "1990-01-01"}
         form = LifeEventForm(data=data, person=self.person, tree=self.tree, user=self.user)
         self.assertFalse(form.is_valid())
         self.assertIn("event_type", form.errors)
 
     def test_end_date_before_event_date_invalid(self) -> None:
+        """Тест: дата окончания не может быть раньше даты начала."""
         data = {
             "event_type": EventTypeEnum.WORK,
             "event_date": "2020-01-01",
-            "end_date": "2019-01-01",  # Раньше начала
+            "end_date": "2010-01-01",
         }
         form = LifeEventForm(data=data, person=self.person, tree=self.tree, user=self.user)
         self.assertFalse(form.is_valid())
         self.assertIn("end_date", form.errors)
 
     def test_related_person_from_same_tree(self) -> None:
+        """Тест: связанная персона должна быть из того же дерева."""
         data = {
             "event_type": EventTypeEnum.MARRIAGE,
             "event_date": "2015-06-15",
@@ -279,30 +306,31 @@ class LifeEventFormTest(TestCase):
         self.assertTrue(form.is_valid())
 
     def test_related_person_from_different_tree_invalid(self) -> None:
-        other_tree = Tree.objects.create(name="Другое дерево")
-        other_person = Person.objects.create(
-            first_name="Пётр", last_name="Сидоров", gender=GenderEnum.MALE, tree=other_tree
-        )
+        """Тест: связанная персона из другого дерева недопустима."""
+        tree2 = Tree.objects.create(name="Другое дерево")
+        person2 = Person.objects.create(first_name="Анна", last_name="Анна", gender=GenderEnum.FEMALE, tree=tree2)
         data = {
             "event_type": EventTypeEnum.MARRIAGE,
             "event_date": "2015-06-15",
-            "related_person": other_person.pk,
+            "related_person": person2.pk,
         }
         form = LifeEventForm(data=data, person=self.person, tree=self.tree, user=self.user)
         self.assertFalse(form.is_valid())
         self.assertIn("related_person", form.errors)
 
     def test_related_person_self_invalid(self) -> None:
+        """Тест: нельзя связать персону саму с собой."""
         data = {
             "event_type": EventTypeEnum.MARRIAGE,
             "event_date": "2015-06-15",
-            "related_person": self.person.pk,  # Та же персона
+            "related_person": self.person.pk,
         }
         form = LifeEventForm(data=data, person=self.person, tree=self.tree, user=self.user)
         self.assertFalse(form.is_valid())
         self.assertIn("related_person", form.errors)
 
     def test_save_sets_person(self) -> None:
+        """Тест: сохранение устанавливает персону, если она не была указана."""
         data = {
             "event_type": EventTypeEnum.BIRTH,
             "event_date": "1990-01-01",
@@ -312,25 +340,30 @@ class LifeEventFormTest(TestCase):
         event = form.save()
         self.assertEqual(event.person, self.person)
 
+    def test_save_increments_sync_version(self) -> None:
+        """Тест: сохранение увеличивает версию синхронизации."""
+        event = LifeEvent.objects.create(person=self.person, event_type=EventTypeEnum.BIRTH, event_date="1990-01-01")
+        self.assertEqual(event.sync_version, 0)
+        form = LifeEventForm(
+            instance=event,
+            data={"event_type": EventTypeEnum.BIRTH, "event_date": "1990-01-01"},
+            person=self.person,
+            tree=self.tree,
+            user=self.user,
+        )
+        self.assertTrue(form.is_valid())
+        form.save()
+        event.refresh_from_db()
+        self.assertEqual(event.sync_version, 1)
+
     def test_save_sets_created_by(self) -> None:
+        """Тест: сохранение устанавливает пользователя, создавшего запись."""
         data = {
             "event_type": EventTypeEnum.BIRTH,
             "event_date": "1990-01-01",
         }
         form = LifeEventForm(data=data, person=self.person, tree=self.tree, user=self.user)
         self.assertTrue(form.is_valid())
-        event = form.save()
+        form.save()
+        event = LifeEvent.objects.get(person=self.person, event_type=EventTypeEnum.BIRTH)
         self.assertEqual(event.created_by, self.user)
-
-    def test_save_increments_sync_version(self) -> None:
-        event = LifeEvent.objects.create(person=self.person, event_type=EventTypeEnum.BIRTH, event_date="1990-01-01")
-        initial_version = event.sync_version
-        data = {
-            "event_type": EventTypeEnum.BIRTH,
-            "event_date": "1990-01-01",
-            "location": "Москва",
-        }
-        form = LifeEventForm(data=data, instance=event, person=self.person, tree=self.tree, user=self.user)
-        self.assertTrue(form.is_valid())
-        updated_event = form.save()
-        self.assertEqual(updated_event.sync_version, initial_version + 1)

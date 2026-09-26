@@ -37,7 +37,6 @@ urlpatterns = [
     path("person/<int:pk>/", views.PersonDetailView.as_view(), name="person_detail"),
     path("person/<int:pk>/edit/", views.PersonUpdateView.as_view(), name="person_update"),
     path("person/<int:pk>/delete/", views.PersonDeleteView.as_view(), name="person_delete"),
-    # НОВЫЙ МАРШРУТ ДЛЯ ВЫБОРА СУЩЕСТВУЮЩЕГО РОДСТВЕННИКА
     path("tree/<int:tree_pk>/link-relative/", views.LinkRelativeView.as_view(), name="link_relative"),
     path("person/<int:person_pk>/event/add/", views.LifeEventCreateView.as_view(), name="life_event_create"),
     path("event/<int:pk>/edit/", views.LifeEventUpdateView.as_view(), name="life_event_update"),
