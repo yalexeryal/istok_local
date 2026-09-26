@@ -70,9 +70,7 @@ class Person(models.Model):
         verbose_name = "Персона"
         verbose_name_plural = "Персоны"
         ordering = ["last_name", "first_name"]
-        constraints = [
-            models.UniqueConstraint(fields=["first_name", "last_name", "tree"], name="unique_person_in_tree")
-        ]
+        # УДАЛЕНО: UniqueConstraint, так как полные тёзки возможны, а проверка делается на уровне формы
         indexes = [
             models.Index(fields=["last_name", "first_name"]),
             models.Index(fields=["tree", "status"]),
@@ -86,7 +84,6 @@ class Person(models.Model):
 
     @property
     def full_name_display(self) -> str:
-        """Полное имя для отображения."""
         parts = []
         if self.maiden_name and self.gender == GenderEnum.FEMALE:
             parts.append(f"{self.last_name} ({self.maiden_name})")
@@ -99,7 +96,6 @@ class Person(models.Model):
 
     @property
     def age(self) -> int | None:
-        """Возраст персоны."""
         if not self.birth_date:
             return None
         end_date = self.death_date or timezone.now().date()
@@ -110,11 +106,9 @@ class Person(models.Model):
 
     @property
     def is_alive(self) -> bool:
-        """Жива ли персона."""
         return self.death_date is None
 
     def get_parents(self):
-        """Получить родителей персоны."""
         parent_relationships = self.relationships_to.filter(
             relationship_type__in=[
                 RelationshipTypeEnum.BIOLOGICAL_PARENT,
@@ -125,7 +119,6 @@ class Person(models.Model):
         return Person.objects.filter(relationships_from__in=parent_relationships).distinct()
 
     def get_children(self):
-        """Получить детей персоны."""
         child_relationships = self.relationships_from.filter(
             relationship_type__in=[
                 RelationshipTypeEnum.BIOLOGICAL_PARENT,
@@ -136,7 +129,6 @@ class Person(models.Model):
         return Person.objects.filter(relationships_to__in=child_relationships).distinct()
 
     def get_siblings(self):
-        """Получить братьев и сестер."""
         parents = self.get_parents()
         if not parents.exists():
             return Person.objects.none()
@@ -155,7 +147,6 @@ class Person(models.Model):
         )
 
     def get_spouses(self):
-        """Получить всех супругов/партнеров персоны."""
         spouse_rels = models.Q(
             from_person=self,
             relationship_type__in=[
@@ -189,23 +180,6 @@ class Person(models.Model):
         return spouses
 
     def get_combined_timeline(self):
-        """
-        Собирает объединенную хронологию жизни персоны.
-
-        Включает:
-        - Собственные события (кроме BIRTH_OF_CHILD)
-        - Браки и разводы из связей
-        - Рождение детей
-        - Смерть родителей
-        - Смерть супругов (ИСПРАВЛЕНИЕ БАГА 5)
-
-        НЕ включает:
-        - События "Рождение ребенка" как события родственников (чтобы избежать задвоения)
-
-        Сортировка браков без даты:
-        - Если есть совместные дети - перед рождением первого ребенка
-        - Иначе - в самом конце хронологии
-        """
         timeline = []
 
         # 1. Собственные события (исключая BIRTH_OF_CHILD)
@@ -283,7 +257,7 @@ class Person(models.Model):
                     }
                 )
 
-        # 5. Смерть супругов (ИСПРАВЛЕНИЕ БАГА 5)
+        # 5. Смерть супругов
         for spouse_info in self.get_spouses():
             partner = spouse_info["person"]
             if partner.death_date:
