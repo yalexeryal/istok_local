@@ -11,7 +11,7 @@
                 <a href="{% url 'genealogy:person_detail' parent1.pk %}" class="text-gray-600 hover:text-gray-900 font-medium">← Назад к {{ parent1.full_name_display }}</a>
             {% elif form_mode == 'spouse' %}
                 <a href="{% url 'genealogy:person_detail' spouse_of.pk %}" class="text-gray-600 hover:text-gray-900 font-medium">← Назад к {{ spouse_of.full_name_display }}</a>
-            {% elif form_mode == 'father' or form_mode == 'mother' %}
+            {% elif form_mode == 'father' or form_mode == 'mother' or form_mode == 'parent_of_child' %}
                 <a href="{% url 'genealogy:person_detail' child.pk %}" class="text-gray-600 hover:text-gray-900 font-medium">← Назад к {{ child.full_name_display }}</a>
             {% elif form_mode == 'parent' %}
                 <a href="{% url 'genealogy:person_detail' child.pk %}" class="text-gray-600 hover:text-gray-900 font-medium">← Назад к {{ child.full_name_display }}</a>
@@ -41,7 +41,7 @@
                     Связь "Супруг(а)" установится автоматически после сохранения.
                 </p>
             </div>
-        {% elif form_mode == 'father' or form_mode == 'mother' %}
+        {% elif form_mode == 'parent_of_child' or form_mode == 'parent' %}
             <div class="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
                 <p class="text-sm text-green-900">
                     <strong>Ребенок:</strong> {{ child.full_name_display }}
@@ -53,10 +53,38 @@
         {% endif %}
     </div>
 
+    <!-- Модальное окно предупреждения о дублях (ИСПРАВЛЕНИЕ БАГА 4) -->
     <!-- Модальное окно предупреждения о дублях -->
-    {% if duplicates_found %}
-    <div class="mb-6 p-4 bg-yellow-50 border-2 border-yellow-400 rounded-md">
-        <h3 class="text-lg font-semibold text-yellow-900 mb-2">⚠️ Возможные дубликаты</h3>
+{% if exact_duplicate or duplicates_found %}
+<div class="mb-6 p-4 bg-yellow-50 border-2 border-yellow-400 rounded-md">
+    <h3 class="text-lg font-semibold text-yellow-900 mb-2">⚠️ Возможные дубликаты</h3>
+
+    {% if exact_duplicate %}
+        <p class="text-sm text-yellow-800 mb-4">
+            Найдена персона с таким же именем и фамилией. Возможно, это тот же человек:
+        </p>
+        <div class="space-y-2 mb-4">
+            <div class="bg-white p-3 rounded border border-yellow-300 flex justify-between items-center">
+                <div>
+                    <a href="{% url 'genealogy:person_detail' exact_duplicate.pk %}" class="text-blue-600 hover:text-blue-800 font-medium">
+                        {{ exact_duplicate.full_name_display }}
+                    </a>
+                    {% if exact_duplicate.birth_date %}
+                        <span class="text-sm text-gray-600 ml-2">({{ exact_duplicate.birth_date|date:"d.m.Y" }})</span>
+                    {% endif %}
+                    {% if exact_duplicate.birth_place %}
+                        <span class="text-sm text-gray-500 ml-2">📍 {{ exact_duplicate.birth_place }}</span>
+                    {% endif %}
+                </div>
+                <a href="{% url 'genealogy:person_detail' exact_duplicate.pk %}" class="text-sm text-blue-600 hover:text-blue-800">
+                    Перейти →
+                </a>
+            </div>
+        </div>
+        <p class="text-xs text-yellow-700 italic">
+            Точный дубликат не может быть создан. Используйте существующую персону или измените данные.
+        </p>
+    {% else %}
         <p class="text-sm text-yellow-800 mb-4">
             Найдены персоны с похожими данными. Возможно, это те же люди:
         </p>
@@ -70,6 +98,9 @@
                     {% if dup.birth_date %}
                         <span class="text-sm text-gray-600 ml-2">({{ dup.birth_date|date:"d.m.Y" }})</span>
                     {% endif %}
+                    {% if dup.birth_place %}
+                        <span class="text-sm text-gray-500 ml-2">📍 {{ dup.birth_place }}</span>
+                    {% endif %}
                 </div>
                 <a href="{% url 'genealogy:person_detail' dup.pk %}" class="text-sm text-blue-600 hover:text-blue-800">
                     Перейти →
@@ -77,24 +108,30 @@
             </div>
             {% endfor %}
         </div>
-        <form method="post">
+        <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
             <input type="hidden" name="force_create" value="1">
             <!-- Пересылаем все данные формы -->
             {% for field in form %}
                 {% if field.name != 'father' and field.name != 'mother' %}
                     {% if field.field.widget.input_type == 'checkbox' %}
-                        <input type="hidden" name="{{ field.name }}" value="{{ field.value|yesno:'on,off' }}">
+                        {% if field.value %}
+                            <input type="hidden" name="{{ field.name }}" value="on">
+                        {% endif %}
                     {% elif field.value %}
                         <input type="hidden" name="{{ field.name }}" value="{{ field.value }}">
                     {% endif %}
                 {% endif %}
             {% endfor %}
-            <input type="hidden" name="father" value="{{ form.father.value|default:'' }}">
-            <input type="hidden" name="mother" value="{{ form.mother.value|default:'' }}">
+            {% if form.father.value %}
+                <input type="hidden" name="father" value="{{ form.father.value }}">
+            {% endif %}
+            {% if form.mother.value %}
+                <input type="hidden" name="mother" value="{{ form.mother.value }}">
+            {% endif %}
 
             <div class="flex justify-end space-x-2">
-                <a href="{% if form_mode == 'child' %}{% url 'genealogy:person_detail' parent1.pk %}{% elif form_mode == 'spouse' %}{% url 'genealogy:person_detail' spouse_of.pk %}{% else %}{% url 'genealogy:tree_detail' tree.pk %}{% endif %}"
+                <a href="{% if form_mode == 'child' %}{% url 'genealogy:person_detail' parent1.pk %}{% elif form_mode == 'spouse' %}{% url 'genealogy:person_detail' spouse_of.pk %}{% elif form_mode == 'parent_of_child' or form_mode == 'parent' %}{% url 'genealogy:person_detail' child.pk %}{% else %}{% url 'genealogy:tree_detail' tree.pk %}{% endif %}"
                    class="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">
                     Отмена
                 </a>
@@ -103,10 +140,12 @@
                 </button>
             </div>
         </form>
-    </div>
     {% endif %}
+</div>
+{% endif %}
 
-    {% if not duplicates_found %}
+{% if not exact_duplicate %}
+<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
         <form method="post" enctype="multipart/form-data" class="space-y-6">
             {% csrf_token %}
@@ -235,7 +274,7 @@
                         <label for="marriage_date" class="block text-sm font-medium text-gray-700 mb-2">Дата брака</label>
                         <input type="date" name="marriage_date" id="marriage_date"
                                class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        <p class="mt-1 text-xs text-gray-500">Если указать — создастся событие "Брак" у обоих супругов</p>
+                        <p class="mt-1 text-xs text-gray-500">Если указать - создастся событие "Брак" у обоих супругов</p>
                     </div>
                     <div>
                         <label for="marriage_place" class="block text-sm font-medium text-gray-700 mb-2">Место брака</label>
@@ -273,7 +312,7 @@
                     <a href="{% url 'genealogy:person_detail' parent1.pk %}" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">Отмена</a>
                 {% elif form_mode == 'spouse' %}
                     <a href="{% url 'genealogy:person_detail' spouse_of.pk %}" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">Отмена</a>
-                {% elif form_mode == 'father' or form_mode == 'mother' or form_mode == 'parent' %}
+                {% elif form_mode == 'parent_of_child' or form_mode == 'parent' %}
                     <a href="{% url 'genealogy:person_detail' child.pk %}" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">Отмена</a>
                 {% else %}
                     <a href="{% url 'genealogy:tree_detail' tree.pk %}" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition font-medium">Отмена</a>

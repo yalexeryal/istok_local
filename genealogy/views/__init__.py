@@ -16,6 +16,7 @@ from .export_views import (
     TreeImportView,
 )
 from .person_views import (
+    LinkRelativeView,
     PersonCreateView,
     PersonDeleteView,
     PersonDetailView,
@@ -36,6 +37,7 @@ __all__ = [
     "LifeEventCreateView",
     "LifeEventDeleteView",
     "LifeEventUpdateView",
+    "LinkRelativeView",
     "PersonCreateView",
     "PersonDeleteView",
     "PersonDetailView",

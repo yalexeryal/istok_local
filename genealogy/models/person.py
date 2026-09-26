@@ -197,13 +197,14 @@ class Person(models.Model):
         - Браки и разводы из связей
         - Рождение детей
         - Смерть родителей
+        - Смерть супругов (ИСПРАВЛЕНИЕ БАГА 5)
 
         НЕ включает:
         - События "Рождение ребенка" как события родственников (чтобы избежать задвоения)
 
         Сортировка браков без даты:
-        - Если есть совместные дети — перед рождением первого ребенка
-        - Иначе — в самом конце хронологии
+        - Если есть совместные дети - перед рождением первого ребенка
+        - Иначе - в самом конце хронологии
         """
         timeline = []
 
@@ -282,7 +283,24 @@ class Person(models.Model):
                     }
                 )
 
-        # 5. Обработка событий без даты
+        # 5. Смерть супругов (ИСПРАВЛЕНИЕ БАГА 5)
+        for spouse_info in self.get_spouses():
+            partner = spouse_info["person"]
+            if partner.death_date:
+                timeline.append(
+                    {
+                        "date": partner.death_date,
+                        "title": f"Смерть супруга: {partner.full_name_display}",
+                        "description": "",
+                        "location": partner.death_place or "",
+                        "type": "relative",
+                        "related_person": partner,
+                        "event_obj": None,
+                        "has_date": True,
+                    }
+                )
+
+        # 6. Обработка событий без даты
         earliest_child_birth = min(children_birth_dates) if children_birth_dates else None
 
         no_date_events = [item for item in timeline if not item["has_date"]]

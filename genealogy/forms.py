@@ -55,7 +55,8 @@ class PersonForm(forms.ModelForm):
         label="Отец",
         widget=forms.Select(
             attrs={
-                "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 tom-select"
+                # <-- Добавлен tom-select
             }
         ),
     )
@@ -65,7 +66,8 @@ class PersonForm(forms.ModelForm):
         label="Мать",
         widget=forms.Select(
             attrs={
-                "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 tom-select"
+                # <-- Добавлен tom-select
             }
         ),
     )
@@ -222,8 +224,11 @@ class PersonForm(forms.ModelForm):
             queryset = Person.objects.filter(first_name=first_name, last_name=last_name or "", tree=self.tree)
             if self.instance.pk:
                 queryset = queryset.exclude(pk=self.instance.pk)
-            if queryset.exists():
-                raise ValidationError(f'В этом дереве уже есть персона с именем "{first_name} {last_name or ""}".')
+
+            exact_dup = queryset.first()
+            if exact_dup:
+                # Сохраняем точный дубликат, но не бросаем ошибку
+                self.exact_duplicate = exact_dup
 
             # Нечеткая проверка дубликатов (для предупреждения)
             self.duplicates_found = self._find_duplicates(first_name, middle_name, last_name, birth_date, birth_place)
@@ -337,8 +342,6 @@ class PersonForm(forms.ModelForm):
 
 
 class RelationshipForm(forms.ModelForm):
-    """Форма создания родственной связи между двумя персонами."""
-
     class Meta:
         model = Relationship
         fields = [
@@ -353,14 +356,16 @@ class RelationshipForm(forms.ModelForm):
         widgets = {
             "from_person": forms.Select(
                 attrs={
-                    "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 tom-select"
                 }
             ),
+            # <-- tom-select
             "to_person": forms.Select(
                 attrs={
-                    "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 tom-select"
                 }
             ),
+            # <-- tom-select
             "relationship_type": forms.Select(
                 attrs={
                     "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -394,8 +399,9 @@ class RelationshipForm(forms.ModelForm):
         self.tree = tree
         self.user = user
         if tree:
-            self.fields["from_person"].queryset = Person.objects.filter(tree=tree)
-            self.fields["to_person"].queryset = Person.objects.filter(tree=tree)
+            # ✅ ДОБАВЛЕНА СОРТИРОВКА
+            self.fields["from_person"].queryset = Person.objects.filter(tree=tree).order_by("last_name", "first_name")
+            self.fields["to_person"].queryset = Person.objects.filter(tree=tree).order_by("last_name", "first_name")
         self.fields["from_person"].required = True
         self.fields["to_person"].required = True
         self.fields["relationship_type"].required = True
@@ -435,8 +441,6 @@ class RelationshipForm(forms.ModelForm):
 
 
 class LifeEventForm(forms.ModelForm):
-    """Форма создания/редактирования события жизни."""
-
     class Meta:
         model = LifeEvent
         fields = ["event_type", "event_date", "end_date", "is_date_approx", "location", "description", "related_person"]
@@ -476,9 +480,9 @@ class LifeEventForm(forms.ModelForm):
             ),
             "related_person": forms.Select(
                 attrs={
-                    "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 tom-select"
                 }
-            ),
+            ),  # <-- tom-select
         }
 
     def __init__(self, *args, person=None, tree=None, user=None, **kwargs):

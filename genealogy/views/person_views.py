@@ -7,8 +7,9 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import redirect_to_login
 from django.db.models import Q
 from django.http import HttpResponseForbidden
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
 
 from genealogy.forms import PersonForm
@@ -44,6 +45,18 @@ def _get_current_spouse(person: Person) -> Person | None:
     return None
 
 
+# Словарь для отображения типов отношений
+RELATION_LABELS = {
+    "son": "сын",
+    "daughter": "дочь",
+    "adopted_son": "приемный сын",
+    "adopted_daughter": "приемная дочь",
+    "father": "отец",
+    "mother": "мать",
+    "spouse": "супруг(а)",
+}
+
+
 class PersonCreateView(LoginRequiredMixin, CreateView):
     """Создание новой персоны с поддержкой контекстных параметров."""
 
@@ -61,7 +74,7 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
 
         # Контекстные параметры
         self.parent1_id = request.GET.get("parent1_id")
-        self.relation = request.GET.get("relation")  # son, daughter, adopted_son, adopted_daughter, father, mother
+        self.relation = request.GET.get("relation")
         self.spouse_of_id = request.GET.get("spouse_of")
         self.child_id = request.GET.get("child_id")
 
@@ -171,10 +184,14 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         # Проверяем наличие дубликатов
-        if form.duplicates_found and not self.request.POST.get("force_create"):
+        has_exact_duplicate = form.exact_duplicate is not None
+        has_similar_duplicates = len(form.duplicates_found) > 0
+
+        if (has_exact_duplicate or has_similar_duplicates) and not self.request.POST.get("force_create"):
             context = self.get_context_data(form=form)
+            context["exact_duplicate"] = form.exact_duplicate
             context["duplicates_found"] = form.duplicates_found
-            return self.render_to_response(self.get_template_names(), context)
+            return self.render_to_response(context)
 
         response = super().form_valid(form)
         person = self.object
@@ -218,7 +235,7 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
                         related_person=person,
                         defaults={
                             "location": person.birth_place,
-                            "description": f"Рождение {'сына' if person.gender == 'male' else 'дочери'}: {person.full_name_display}",
+                            "description": f'Рождение {"сына" if person.gender == "male" else "дочери"}: {person.full_name_display}',
                             "created_by": self.request.user,
                         },
                     )
@@ -320,10 +337,15 @@ class PersonUpdateView(LoginRequiredMixin, UpdateView):
         return context
 
     def form_valid(self, form):
-        if form.duplicates_found and not self.request.POST.get("force_create"):
+        # Проверяем дубликаты
+        has_exact_duplicate = form.exact_duplicate is not None
+        has_similar_duplicates = len(form.duplicates_found) > 0
+
+        if (has_exact_duplicate or has_similar_duplicates) and not self.request.POST.get("force_create"):
             context = self.get_context_data(form=form)
+            context["exact_duplicate"] = form.exact_duplicate
             context["duplicates_found"] = form.duplicates_found
-            return self.render_to_response(self.get_template_names(), context)
+            return self.render_to_response(context)
 
         response = super().form_valid(form)
         messages.success(self.request, f'Персона "{self.object.full_name_display}" успешно обновлена.')
@@ -420,6 +442,11 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
                     rel_type = "Отчим" if p.gender == "male" else "Мачеха"
                 close_relatives.append({"person": p, "relation": rel_type})
 
+        # Братья и сестры
+        for sibling in person.get_siblings():
+            rel_type = "Брат" if sibling.gender == "male" else "Сестра"
+            close_relatives.append({"person": sibling, "relation": rel_type})
+
         # Дети
         for c in person.get_children():
             rel = Relationship.objects.filter(
@@ -451,5 +478,130 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
                 rel_type = "Жених/Невеста"
             close_relatives.append({"person": partner, "relation": rel_type})
 
+        # Зятья и невестки
+        for child in person.get_children():
+            for spouse_info in child.get_spouses():
+                partner = spouse_info["person"]
+                if spouse_info["type"] == RelationshipTypeEnum.SPOUSE:
+                    rel_type = "Зять" if partner.gender == "male" else "Невестка"
+                    close_relatives.append({"person": partner, "relation": rel_type})
+
         context["close_relatives"] = close_relatives
         return context
+
+
+class LinkRelativeView(LoginRequiredMixin, View):
+    """Выбор существующей персоны в качестве родственника."""
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+
+        self.tree = get_object_or_404(Tree, pk=self.kwargs["tree_pk"])
+        if not self.tree.user_can_edit(request.user):
+            return HttpResponseForbidden("У вас нет прав для добавления связей в это дерево")
+
+        # Параметры контекста
+        self.parent1_id = request.GET.get("parent1_id")
+        self.relation = request.GET.get("relation")
+
+        # Загружаем связанную персону
+        self.parent1 = Person.objects.filter(pk=self.parent1_id).first() if self.parent1_id else None
+
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        # Получаем список персон для выбора (исключая текущую и уже связанных)
+        available_persons = Person.objects.filter(tree=self.tree)
+
+        if self.parent1:
+            # Исключаем саму персону
+            available_persons = available_persons.exclude(pk=self.parent1.pk)
+
+            # Исключаем уже связанных персон
+            if self.relation in ["son", "daughter", "adopted_son", "adopted_daughter"]:
+                # Исключаем уже существующих детей
+                existing_children = self.parent1.get_children()
+                available_persons = available_persons.exclude(pk__in=existing_children.values_list("pk", flat=True))
+            elif self.relation in ["father", "mother"]:
+                # Исключаем уже существующих родителей
+                existing_parents = self.parent1.get_parents()
+                available_persons = available_persons.exclude(pk__in=existing_parents.values_list("pk", flat=True))
+            elif self.relation == "spouse":
+                # Исключаем уже существующих супругов
+                existing_spouses = [s["person"] for s in self.parent1.get_spouses()]
+                available_persons = available_persons.exclude(pk__in=[s.pk for s in existing_spouses])
+
+        context = {
+            "tree": self.tree,
+            "parent1": self.parent1,
+            "relation": self.relation,
+            "available_persons": available_persons.order_by("last_name", "first_name"),
+            "action": f"Выбор {RELATION_LABELS.get(self.relation, 'родственника')}",
+        }
+
+        return render(request, "genealogy/link_relative.html", context)
+
+    def post(self, request, *args, **kwargs):
+        selected_person_id = request.POST.get("selected_person")
+
+        if not selected_person_id:
+            messages.error(request, "Не выбрана персона")
+            return redirect(request.get_full_path())
+
+        selected_person = get_object_or_404(Person, pk=selected_person_id)
+
+        # Создаём связь в зависимости от типа
+        if self.relation in ["son", "daughter", "adopted_son", "adopted_daughter"]:
+            is_biological = self.relation in ["son", "daughter"]
+            rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT if is_biological else RelationshipTypeEnum.ADOPTIVE_PARENT
+
+            Relationship.objects.get_or_create(
+                from_person=self.parent1,
+                to_person=selected_person,
+                relationship_type=rel_type,
+                defaults={"created_by": request.user},
+            )
+
+            # Если у выбранной персоны есть супруг, добавляем его как второго родителя
+            spouse = _get_current_spouse(self.parent1)
+            if spouse:
+                Relationship.objects.get_or_create(
+                    from_person=spouse,
+                    to_person=selected_person,
+                    relationship_type=rel_type,
+                    defaults={"created_by": request.user},
+                )
+
+            messages.success(
+                request,
+                f'Персона "{selected_person.full_name_display}" успешно добавлена как {RELATION_LABELS.get(self.relation, "родственник")}.',
+            )
+
+        elif self.relation in ["father", "mother"]:
+            Relationship.objects.get_or_create(
+                from_person=selected_person,
+                to_person=self.parent1,
+                relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                defaults={"created_by": request.user},
+            )
+
+            messages.success(
+                request,
+                f'Персона "{selected_person.full_name_display}" успешно добавлена как {RELATION_LABELS.get(self.relation, "родственник")}.',
+            )
+
+        elif self.relation == "spouse":
+            Relationship.objects.get_or_create(
+                from_person=self.parent1,
+                to_person=selected_person,
+                relationship_type=RelationshipTypeEnum.SPOUSE,
+                defaults={"created_by": request.user, "is_current": True},
+            )
+
+            messages.success(
+                request,
+                f'Персона "{selected_person.full_name_display}" успешно добавлена как супруг(а).',
+            )
+
+        return redirect("genealogy:person_detail", pk=self.parent1.pk)

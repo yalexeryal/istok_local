@@ -48,16 +48,16 @@ git clone <url-репозитория>
 cd istok_local
 
 # 2. Создать виртуальное окружение
-python -m venv venv
+py -3.12 -m venv venv
 
 # 3. Активировать виртуальное окружение
 # Windows:
-venv\Scripts\activate
+.\venv\Scripts\Activate.ps1
 # Linux/Mac:
 source venv/bin/activate
 
 # 4. Установить зависимости
-pip install -r requirements.txt
+pip install -e ".[dev]"
 
 # 5. Применить миграции
 python manage.py migrate

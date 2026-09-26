@@ -33,23 +33,57 @@
                 {% endif %}
             </div>
             <div class="space-y-3">
-                <div><div class="text-sm text-gray-500">Пол</div><div class="text-base font-medium">{{ person.get_gender_display }}</div></div>
+                <div>
+                    <div class="text-sm text-gray-500">Пол</div>
+                    <div class="text-base font-medium">{{ person.get_gender_display }}</div>
+                </div>
                 {% if person.birth_date %}
-                    <div><div class="text-sm text-gray-500">Дата рождения</div><div class="text-base font-medium">{{ person.birth_date|date:"d E Y" }}{% if person.is_birth_date_approx %} <span class="text-sm text-gray-500">(приблизительно)</span>{% endif %}</div></div>
+                    <div>
+                        <div class="text-sm text-gray-500">Дата рождения</div>
+                        <div class="text-base font-medium">
+                            {{ person.birth_date|date:"d E Y" }}
+                            {% if person.is_birth_date_approx %}
+                                <span class="text-sm text-gray-500">(приблизительно)</span>
+                            {% endif %}
+                        </div>
+                    </div>
                 {% endif %}
                 {% if person.birth_place %}
-                    <div><div class="text-sm text-gray-500">Место рождения</div><div class="text-base font-medium">{{ person.birth_place }}</div></div>
+                    <div>
+                        <div class="text-sm text-gray-500">Место рождения</div>
+                        <div class="text-base font-medium">{{ person.birth_place }}</div>
+                    </div>
                 {% endif %}
                 {% if person.death_date %}
-                    <div><div class="text-sm text-gray-500">Дата смерти</div><div class="text-base font-medium">{{ person.death_date|date:"d E Y" }}{% if person.is_death_date_approx %} <span class="text-sm text-gray-500">(приблизительно)</span>{% endif %}</div></div>
+                    <div>
+                        <div class="text-sm text-gray-500">Дата смерти</div>
+                        <div class="text-base font-medium">
+                            {{ person.death_date|date:"d E Y" }}
+                            {% if person.is_death_date_approx %}
+                                <span class="text-sm text-gray-500">(приблизительно)</span>
+                            {% endif %}
+                        </div>
+                    </div>
                 {% endif %}
                 {% if person.culture %}
-                    <div><div class="text-sm text-gray-500">Культура / Национальность</div><div class="text-base font-medium">{{ person.culture }}</div></div>
+                    <div>
+                        <div class="text-sm text-gray-500">Культура / Национальность</div>
+                        <div class="text-base font-medium">{{ person.culture }}</div>
+                    </div>
                 {% endif %}
                 <div>
                     <div class="text-sm text-gray-500">Возраст</div>
                     <div class="text-base font-medium">
-                        {% if person.age %}{{ person.age }}{% if person.is_alive %} <span class="text-green-600">(жив(а))</span>{% else %} <span class="text-gray-500">(†)</span>{% endif %}{% else %}—{% endif %}
+                        {% if person.age %}
+                            {{ person.age }}
+                            {% if person.is_alive %}
+                                <span class="text-green-600">(жив(а))</span>
+                            {% else %}
+                                <span class="text-gray-500">(†)</span>
+                            {% endif %}
+                        {% else %}
+                            —
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -67,31 +101,98 @@
         <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
             <h2 class="text-xl font-semibold text-gray-900">Ближайшие родственники</h2>
             {% if can_edit %}
-                <div class="flex flex-wrap gap-2">
-                    {% if not father %}
-                        <a href="{% url 'genealogy:person_create' tree.pk %}?parent1_id={{ person.pk }}&relation=father"
-                           class="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition text-sm font-medium">
-                            + Отец
-                        </a>
-                    {% endif %}
-                    {% if not mother %}
-                        <a href="{% url 'genealogy:person_create' tree.pk %}?parent1_id={{ person.pk }}&relation=mother"
-                           class="px-3 py-1.5 bg-pink-50 text-pink-700 rounded-md hover:bg-pink-100 transition text-sm font-medium">
-                            + Мать
-                        </a>
-                    {% endif %}
-                    <a href="{% url 'genealogy:person_create' tree.pk %}?parent1_id={{ person.pk }}&relation=son"
-                       class="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition text-sm font-medium">
-                        + Сын
-                    </a>
-                    <a href="{% url 'genealogy:person_create' tree.pk %}?parent1_id={{ person.pk }}&relation=daughter"
-                       class="px-3 py-1.5 bg-pink-50 text-pink-700 rounded-md hover:bg-pink-100 transition text-sm font-medium">
-                        + Дочь
-                    </a>
-                    <a href="{% url 'genealogy:person_create' tree.pk %}?spouse_of={{ person.pk }}"
-                       class="px-3 py-1.5 bg-purple-50 text-purple-700 rounded-md hover:bg-purple-100 transition text-sm font-medium">
-                        + Супруг(а)
-                    </a>
+                <div x-data="{ open: false, showModal: false, modalRelation: '', modalRelationLabel: '' }" class="relative">
+                    <button @click="open = !open"
+                            @click.away="open = false"
+                            class="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium text-sm shadow-sm">
+                        <span>+ Добавить родственника</span>
+                        <svg :class="{'rotate-180': open}" class="w-4 h-4 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+
+                    <div x-show="open"
+                         x-transition
+                         class="absolute right-0 mt-2 w-60 bg-white rounded-lg shadow-lg py-1 z-50 border border-gray-200"
+                         style="display: none;">
+
+                        <div class="px-4 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Родители</div>
+                        {% if not father %}
+                            <button @click="modalRelation = 'father'; modalRelationLabel = 'отца'; showModal = true; open = false"
+                                    class="w-full text-left flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition">
+                                <span class="mr-2">👨</span> Отец
+                            </button>
+                        {% endif %}
+                        {% if not mother %}
+                            <button @click="modalRelation = 'mother'; modalRelationLabel = 'мать'; showModal = true; open = false"
+                                    class="w-full text-left flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-pink-50 hover:text-pink-700 transition">
+                                <span class="mr-2">👩</span> Мать
+                            </button>
+                        {% endif %}
+                        {% if father and mother %}
+                            <div class="px-4 py-2 text-xs text-gray-400 italic">Оба родителя уже добавлены</div>
+                        {% endif %}
+
+                        <div class="border-t border-gray-100 my-1"></div>
+
+                        <div class="px-4 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Дети</div>
+                        <button @click="modalRelation = 'son'; modalRelationLabel = 'сына'; showModal = true; open = false"
+                                class="w-full text-left flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition">
+                            <span class="mr-2">👦</span> Сын
+                        </button>
+                        <button @click="modalRelation = 'daughter'; modalRelationLabel = 'дочери'; showModal = true; open = false"
+                                class="w-full text-left flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-pink-50 hover:text-pink-700 transition">
+                            <span class="mr-2">👧</span> Дочь
+                        </button>
+                        <button @click="modalRelation = 'adopted_son'; modalRelationLabel = 'приемного сына'; showModal = true; open = false"
+                                class="w-full text-left flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition">
+                            <span class="mr-2">👦</span> Приемный сын
+                        </button>
+                        <button @click="modalRelation = 'adopted_daughter'; modalRelationLabel = 'приемную дочь'; showModal = true; open = false"
+                                class="w-full text-left flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition">
+                            <span class="mr-2">👧</span> Приемная дочь
+                        </button>
+
+                        <div class="border-t border-gray-100 my-1"></div>
+
+                        <div class="px-4 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Супруг(а)</div>
+                        <button @click="modalRelation = 'spouse'; modalRelationLabel = 'супруга(у)'; showModal = true; open = false"
+                                class="w-full text-left flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition">
+                            <span class="mr-2">💍</span> Супруг(а)
+                        </button>
+                    </div>
+
+                    <!-- Модальное окно выбора действия -->
+                    <div x-show="showModal"
+                         x-transition
+                         class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+                         style="display: none;"
+                         @click.away="showModal = false">
+                        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+                            <div class="mt-3">
+                                <h3 class="text-lg font-medium text-gray-900 mb-4">
+                                    Добавить <span x-text="modalRelationLabel"></span>
+                                </h3>
+                                <p class="text-sm text-gray-600 mb-6">
+                                    Выберите действие:
+                                </p>
+                                <div class="space-y-3">
+                                    <a :href="{% url 'genealogy:person_create' tree.pk %}?parent1_id={{ person.pk }}&relation=" + modalRelation
+                                       class="block w-full px-4 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium text-center">
+                                        ✨ Создать новую персону
+                                    </a>
+                                    <a :href="{% url 'genealogy:link_relative' tree.pk %}?parent1_id={{ person.pk }}&relation=" + modalRelation
+                                       class="block w-full px-4 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 transition font-medium text-center">
+                                        🔍 Выбрать существующую
+                                    </a>
+                                    <button @click="showModal = false"
+                                            class="block w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium">
+                                        Отмена
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             {% endif %}
         </div>
@@ -99,25 +200,25 @@
         {% if close_relatives %}
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {% for rel in close_relatives %}
-                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 hover:border-blue-300 transition">
-                    <a href="{% url 'genealogy:person_detail' rel.person.pk %}" class="text-lg font-semibold text-blue-600 hover:text-blue-800 block mb-2">
-                        {{ rel.person.full_name_display }}
-                    </a>
-                    <div class="text-sm text-gray-600 mb-3">
-                        {% if rel.person.birth_date and rel.person.death_date %}
-                            {{ rel.person.birth_date|date:"d M Y" }} - {{ rel.person.death_date|date:"d M Y" }}
-                        {% elif rel.person.birth_date %}
-                            с {{ rel.person.birth_date|date:"d M Y" }}
-                        {% elif rel.person.death_date %}
-                            до {{ rel.person.death_date|date:"d M Y" }}
-                        {% else %}
-                            Даты не указаны
-                        {% endif %}
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 hover:border-blue-300 transition">
+                        <a href="{% url 'genealogy:person_detail' rel.person.pk %}" class="text-lg font-semibold text-blue-600 hover:text-blue-800 block mb-2">
+                            {{ rel.person.full_name_display }}
+                        </a>
+                        <div class="text-sm text-gray-600 mb-3">
+                            {% if rel.person.birth_date and rel.person.death_date %}
+                                {{ rel.person.birth_date|date:"d M Y" }} - {{ rel.person.death_date|date:"d M Y" }}
+                            {% elif rel.person.birth_date %}
+                                с {{ rel.person.birth_date|date:"d M Y" }}
+                            {% elif rel.person.death_date %}
+                                до {{ rel.person.death_date|date:"d M Y" }}
+                            {% else %}
+                                Даты не указаны
+                            {% endif %}
+                        </div>
+                        <div class="text-sm font-medium text-gray-800 bg-gray-200 inline-block px-3 py-1 rounded-full">
+                            {{ rel.relation }}
+                        </div>
                     </div>
-                    <div class="text-sm font-medium text-gray-800 bg-gray-200 inline-block px-3 py-1 rounded-full">
-                        {{ rel.relation }}
-                    </div>
-                </div>
                 {% endfor %}
             </div>
         {% else %}
