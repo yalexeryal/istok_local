@@ -26,15 +26,15 @@
     </div>
 </div>
 
-{% if trees %}
+{% if trees_with_roles %}
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {% for tree in trees %}
+        {% for item in trees_with_roles %}
             <div class="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
                 <div class="p-6">
                     <div class="flex items-start justify-between mb-4">
                         <div class="flex-1">
-                            <h2 class="text-xl font-semibold text-gray-900 mb-1">{{ tree.name }}</h2>
-                            {% if tree.is_public %}
+                            <h2 class="text-xl font-semibold text-gray-900 mb-1">{{ item.tree.name }}</h2>
+                            {% if item.tree.is_public %}
                                 <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Публичное</span>
                             {% else %}
                                 <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">Приватное</span>
@@ -42,22 +42,26 @@
                         </div>
                         <span class="text-3xl" aria-hidden="true">🌳</span>
                     </div>
-                    {% if tree.description %}
-                        <p class="text-sm text-gray-600 mb-4 line-clamp-2">{{ tree.description }}</p>
+
+                    {% if item.tree.description %}
+                        <p class="text-sm text-gray-600 mb-4 line-clamp-2">{{ item.tree.description }}</p>
                     {% endif %}
+
                     <div class="grid grid-cols-2 gap-4 mb-4 py-4 border-t border-b border-gray-100">
                         <div>
-                            <div class="text-2xl font-bold text-gray-900">{{ tree.persons_count }}</div>
+                            <div class="text-2xl font-bold text-gray-900">{{ item.tree.persons_count }}</div>
                             <div class="text-xs text-gray-500 uppercase tracking-wide">Персон</div>
                         </div>
                         <div>
-                            <div class="text-sm font-medium text-gray-900">{{ tree_roles|default_if_none:"—" }}</div>
+                            <div class="text-sm font-medium text-gray-900">{{ item.role }}</div>
                             <div class="text-xs text-gray-500 uppercase tracking-wide">Ваша роль</div>
                         </div>
                     </div>
-                    <div class="text-xs text-gray-500">Обновлено: {{ tree.updated_at|date:"d.m.Y в H:i" }}</div>
+
+                    <div class="text-xs text-gray-500">Обновлено: {{ item.tree.updated_at|date:"d.m.Y в H:i" }}</div>
+
                     <div class="mt-4">
-                        <a href="{% url 'genealogy:tree_detail' tree.pk %}" class="block w-full text-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">Открыть дерево</a>
+                        <a href="{% url 'genealogy:tree_detail' item.tree.pk %}" class="block w-full text-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">Открыть дерево</a>
                     </div>
                 </div>
             </div>
@@ -66,7 +70,7 @@
 {% else %}
     <div class="text-center py-16 bg-white rounded-lg shadow-sm border border-gray-200">
         <span class="text-6xl mb-4 block" aria-hidden="true">🌱</span>
-        <h3 class="text-xl font-semibold text-gray-900 mb-2">Пока нет деревьев</h3>
+        <h3 class="text-xl font-semibold text-gray-900 mb-2">У вас пока нет деревьев</h3>
         <p class="text-gray-600 max-w-md mx-auto mb-6">Начните строить своё родовое дерево прямо сейчас.</p>
         <a href="{% url 'genealogy:tree_create' %}" class="inline-block px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">Создать первое дерево</a>
     </div>

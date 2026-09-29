@@ -2,9 +2,12 @@
 Views для работы с деревьями.
 """
 
+import json
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Count, Q
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404
@@ -27,28 +30,33 @@ class TreeListView(LoginRequiredMixin, ListView):
     def get_queryset(self):
         user = self.request.user
         if user.is_superuser:
-            return Tree.objects.all()
+            return Tree.objects.annotate(persons_count=Count("persons", distinct=True)).order_by("-updated_at")
+
         return (
             Tree.objects.filter(Q(collaborators__user=user) | Q(is_public=True))
             .distinct()
-            .annotate(
-                persons_count=Count("persons", distinct=True),
-                user_role=Q(collaborators__user=user),
-            )
+            .annotate(persons_count=Count("persons", distinct=True))
             .order_by("-updated_at")
         )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
-        tree_roles = {}
+
+        trees_with_roles = []
         for tree in context["trees"]:
             collaborator = tree.collaborators.filter(user=user).first()
-            tree_roles[tree.pk] = (
-                collaborator.get_role_display() if collaborator else ("Гость" if tree.is_public else "—")
-            )
-        context["tree_roles"] = tree_roles
-        context["total_trees"] = context["trees"].count()
+            if collaborator:
+                role = collaborator.get_role_display()
+            elif tree.is_public:
+                role = "Гость"
+            else:
+                role = "—"
+
+            trees_with_roles.append({"tree": tree, "role": role})
+
+        context["trees_with_roles"] = trees_with_roles
+        context["total_trees"] = len(trees_with_roles)
         return context
 
 
@@ -92,10 +100,27 @@ class TreeDetailView(LoginRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         tree = self.object
         user = self.request.user
-        context["persons"] = tree.persons.all().prefetch_related(
-            "relationships_from", "relationships_to", "life_events"
-        )
-        context["persons_count"] = context["persons"].count()
+
+        persons = tree.persons.all().prefetch_related("relationships_from", "relationships_to", "life_events")
+        context["persons"] = persons
+        context["persons_count"] = persons.count()
+
+        # Генерация JSON для Alpine.js (табличный вид)
+        persons_data = []
+        for p in persons:
+            persons_data.append(
+                {
+                    "id": p.pk,
+                    "full_name": p.full_name_display,
+                    "last_name": p.last_name or "",
+                    "gender": p.get_gender_display(),
+                    "birth_date": p.birth_date.isoformat() if p.birth_date else "",
+                    "age": p.age,
+                    "is_alive": p.is_alive,
+                }
+            )
+        context["persons_json"] = json.dumps(persons_data, cls=DjangoJSONEncoder)
+
         collaborator = tree.collaborators.filter(user=user).first()
         if collaborator:
             context["user_role"] = collaborator.get_role_display()
@@ -106,6 +131,7 @@ class TreeDetailView(LoginRequiredMixin, DetailView):
         else:
             context["user_role"] = "Гость"
             context["can_edit"] = False
+
         return context
 
 
@@ -113,10 +139,12 @@ class TreeDetailView(LoginRequiredMixin, DetailView):
 def tree_data_api(request, pk):
     """API endpoint для получения данных дерева в JSON формате."""
     tree = get_object_or_404(Tree, pk=pk)
+
     if not tree.user_can_view(request.user):
         return JsonResponse({"error": "Access denied"}, status=403)
 
     persons = tree.persons.all()
+
     nodes = [
         {
             "data": {
@@ -134,6 +162,7 @@ def tree_data_api(request, pk):
         }
         for p in persons
     ]
+
     edges = []
     for p in persons:
         for rel in p.relationships_from.all():
@@ -148,6 +177,7 @@ def tree_data_api(request, pk):
                     }
                 }
             )
+
     return JsonResponse(
         {
             "tree": {"id": tree.pk, "name": tree.name, "description": tree.description},
