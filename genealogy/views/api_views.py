@@ -10,7 +10,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views import View
 
-from genealogy.models import Person, Relationship, Tree
+from genealogy.models import Person, Relationship, RelationshipTypeEnum, Tree
 
 
 class TreeHierarchyAPI(LoginRequiredMixin, View):
@@ -28,14 +28,12 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
         if center_person_id:
             center_person = get_object_or_404(Person, pk=center_person_id, tree=tree)
         else:
-            # Если центральная персона не указана, берем первую персону в дереве
             center_person = tree.persons.first()
             if not center_person:
                 return JsonResponse({"center_person": None, "nodes": [], "links": []})
 
         max_depth = 3
 
-        # BFS (поиск в ширину) для нахождения всех персон в пределах max_depth
         visited_persons = set()
         queue = deque([(center_person, 0)])
         visited_persons.add(center_person.pk)
@@ -48,7 +46,6 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
             if current_depth >= max_depth:
                 continue
 
-            # Находим все связи текущей персоны
             rels = Relationship.objects.filter(
                 models.Q(from_person=current_person) | models.Q(to_person=current_person)
             ).select_related("from_person", "to_person")
@@ -60,7 +57,6 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
                     relevant_persons[partner.pk] = partner
                     queue.append((partner, current_depth + 1))
 
-        # Формируем список узлов (nodes)
         nodes = []
         for p in relevant_persons.values():
             nodes.append(
@@ -76,7 +72,6 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
                 }
             )
 
-        # Формируем список связей (links) только между найденными персонами
         links = []
         rel_pks = [p.pk for p in relevant_persons.values()]
         relationships = Relationship.objects.filter(from_person__in=rel_pks, to_person__in=rel_pks)
@@ -95,5 +90,96 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
                 "center_person": str(center_person.pk),
                 "nodes": nodes,
                 "links": links,
+            }
+        )
+
+
+class TreeAncestorsAPI(LoginRequiredMixin, View):
+    """
+    API для получения предков выбранной персоны (веерная диаграмма).
+    Возвращает предков по поколениям (до 6 поколений).
+    """
+
+    def get(self, request, tree_pk):
+        tree = get_object_or_404(Tree, pk=tree_pk)
+        if not tree.user_can_view(request.user):
+            return JsonResponse({"error": "Access denied"}, status=403)
+
+        center_person_id = request.GET.get("center_person")
+        if center_person_id:
+            center_person = get_object_or_404(Person, pk=center_person_id, tree=tree)
+        else:
+            center_person = tree.persons.first()
+            if not center_person:
+                return JsonResponse({"center_person": None, "generations": []})
+
+        max_generations = 6
+
+        # Собираем предков по поколениям
+        generations = []
+
+        # Поколение 0 - центральная персона
+        generations.append(
+            [
+                {
+                    "id": str(center_person.pk),
+                    "label": center_person.full_name_display,
+                    "first_name": center_person.first_name,
+                    "last_name": center_person.last_name or "",
+                    "gender": center_person.gender,
+                    "birth_date": center_person.birth_date.isoformat() if center_person.birth_date else None,
+                    "death_date": center_person.death_date.isoformat() if center_person.death_date else None,
+                    "photo_url": center_person.photo.url if center_person.photo else None,
+                    "generation": 0,
+                }
+            ]
+        )
+
+        # Поколения 1-6 - предки
+        current_generation_persons = [center_person]
+
+        for gen in range(1, max_generations + 1):
+            next_generation_persons = []
+            gen_data = []
+
+            for person in current_generation_persons:
+                # Находим родителей
+                parent_rels = Relationship.objects.filter(
+                    to_person=person,
+                    relationship_type__in=[
+                        RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                        RelationshipTypeEnum.ADOPTIVE_PARENT,
+                    ],
+                ).select_related("from_person")
+
+                for rel in parent_rels:
+                    parent = rel.from_person
+                    if parent not in next_generation_persons:
+                        next_generation_persons.append(parent)
+                        gen_data.append(
+                            {
+                                "id": str(parent.pk),
+                                "label": parent.full_name_display,
+                                "first_name": parent.first_name,
+                                "last_name": parent.last_name or "",
+                                "gender": parent.gender,
+                                "birth_date": parent.birth_date.isoformat() if parent.birth_date else None,
+                                "death_date": parent.death_date.isoformat() if parent.death_date else None,
+                                "photo_url": parent.photo.url if parent.photo else None,
+                                "generation": gen,
+                                "parent_of": str(person.pk),
+                            }
+                        )
+
+            if gen_data:
+                generations.append(gen_data)
+                current_generation_persons = next_generation_persons
+            else:
+                break
+
+        return JsonResponse(
+            {
+                "center_person": str(center_person.pk),
+                "generations": generations,
             }
         )

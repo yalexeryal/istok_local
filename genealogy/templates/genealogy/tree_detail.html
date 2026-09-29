@@ -40,6 +40,9 @@
             <button @click="switchView('graph')" :class="view === 'graph' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'" class="view-btn px-3 py-1.5 text-sm rounded-md font-medium transition">
                 🕸️ Свободный граф
             </button>
+            <button @click="switchView('ancestors')" :class="view === 'ancestors' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'" class="view-btn px-3 py-1.5 text-sm rounded-md font-medium transition">
+                🌻 Предки
+            </button>
             <button @click="switchView('table')" :class="view === 'table' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'" class="view-btn px-3 py-1.5 text-sm rounded-md font-medium transition">
                 📋 Таблица
             </button>
@@ -61,6 +64,20 @@
             </div>
         </div>
         <div id="cy" style="width: 100%; height: 100%;"></div>
+    </div>
+
+    <!-- Веерная диаграмма предков -->
+    <div x-show="view === 'ancestors'" class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-xl font-semibold text-gray-900">Веерная диаграмма предков</h2>
+            <div class="text-sm text-gray-500">До 6 поколений</div>
+        </div>
+        <div id="ancestors-fan" class="flex items-center justify-center" style="width: 100%; height: 70vh; min-height: 600px;">
+            <div class="text-center text-gray-500">
+                <div class="text-4xl mb-2 animate-spin">🌻</div>
+                <p>Загрузка предков...</p>
+            </div>
+        </div>
     </div>
 
     <!-- Табличный вид -->
@@ -170,13 +187,14 @@ document.addEventListener('alpine:init', () => {
         persons: {{ persons_json|safe }},
 
         init() {
-            // Следим за изменением вида и перерисовываем граф
             this.$watch('view', (newVal) => {
                 if ((newVal === 'hierarchy' || newVal === 'graph') && typeof window.renderGraph === 'function') {
                     currentLayout = newVal;
                     const loadingEl = document.getElementById('cy-loading');
                     if (loadingEl) loadingEl.style.display = 'flex';
                     window.renderGraph();
+                } else if (newVal === 'ancestors' && typeof window.renderAncestorsFan === 'function') {
+                    window.renderAncestorsFan();
                 }
             });
         },
@@ -257,6 +275,152 @@ function renderGraph() {
     cy.on('tap', 'node', function(evt) {
         showPersonSidebar(evt.target.id(), evt.target.data());
     });
+}
+
+// === ВЕЕРНАЯ ДИАГРАММА ПРЕДКОВ ===
+async function renderAncestorsFan() {
+    const fanContainer = document.getElementById('ancestors-fan');
+
+    try {
+        const url = `/api/tree/{{ tree.pk }}/ancestors/?center_person=${currentCenterPersonId || ''}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ошибка: ${response.status}`);
+
+        const data = await response.json();
+
+        if (!data.generations || data.generations.length === 0) {
+            fanContainer.innerHTML = `<div class="text-center text-gray-500"><div class="text-4xl mb-2">📭</div><p>Предки не найдены</p></div>`;
+            return;
+        }
+
+        renderFanSVG(data, fanContainer);
+    } catch (error) {
+        fanContainer.innerHTML = `<div class="text-center text-red-500"><div class="text-4xl mb-2">⚠️</div><p>Не удалось загрузить предков</p></div>`;
+    }
+}
+
+function renderFanSVG(data, container) {
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const centerX = width / 2;
+    const centerY = height;
+    const maxRadius = Math.min(width, height) * 0.9;
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', width);
+    svg.setAttribute('height', height);
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+    const generations = data.generations;
+    const numGenerations = generations.length;
+
+    // Рисуем поколения от центра наружу
+    for (let gen = 0; gen < numGenerations; gen++) {
+        const innerRadius = (gen / numGenerations) * maxRadius;
+        const outerRadius = ((gen + 1) / numGenerations) * maxRadius;
+        const persons = generations[gen];
+        const numPersons = persons.length;
+
+        if (numPersons === 0) continue;
+
+        const angleStep = Math.PI / numPersons; // Полукруг = 180 градусов
+
+        for (let i = 0; i < numPersons; i++) {
+            const person = persons[i];
+            const startAngle = Math.PI + (i * angleStep); // Начинаем с левого края
+            const endAngle = startAngle + angleStep;
+
+            // Создаем сектор (дугу)
+            const path = createArcPath(centerX, centerY, innerRadius, outerRadius, startAngle, endAngle);
+
+            const pathElement = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            pathElement.setAttribute('d', path);
+
+            // Цвет в зависимости от пола
+            let fillColor = '#dbeafe'; // По умолчанию голубой
+            let strokeColor = '#3b82f6';
+            if (person.gender === 'female') {
+                fillColor = '#fce7f3';
+                strokeColor = '#ec4899';
+            } else if (person.gender === 'unknown') {
+                fillColor = '#f3f4f6';
+                strokeColor = '#9ca3af';
+            }
+
+            // Центральная персона - желтая
+            if (gen === 0) {
+                fillColor = '#fef9c3';
+                strokeColor = '#eab308';
+            }
+
+            // Умершие - серые
+            if (person.death_date && person.death_date !== "null" && person.death_date !== "") {
+                fillColor = '#e5e7eb';
+                strokeColor = '#000000';
+            }
+
+            pathElement.setAttribute('fill', fillColor);
+            pathElement.setAttribute('stroke', strokeColor);
+            pathElement.setAttribute('stroke-width', '2');
+            pathElement.setAttribute('cursor', 'pointer');
+
+            // Клик по сектору
+            pathElement.addEventListener('click', () => {
+                showPersonSidebar(person.id, person);
+            });
+
+            // Hover эффект
+            pathElement.addEventListener('mouseenter', () => {
+                pathElement.setAttribute('stroke-width', '4');
+            });
+            pathElement.addEventListener('mouseleave', () => {
+                pathElement.setAttribute('stroke-width', '2');
+            });
+
+            svg.appendChild(pathElement);
+
+            // Добавляем текст (имя)
+            const midAngle = (startAngle + endAngle) / 2;
+            const textRadius = (innerRadius + outerRadius) / 2;
+            const textX = centerX + textRadius * Math.cos(midAngle);
+            const textY = centerY + textRadius * Math.sin(midAngle);
+
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', textX);
+            text.setAttribute('y', textY);
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('dominant-baseline', 'middle');
+            text.setAttribute('font-size', gen === 0 ? '14' : '11');
+            text.setAttribute('font-weight', 'bold');
+            text.setAttribute('fill', '#1f2937');
+            text.setAttribute('pointer-events', 'none');
+
+            // Обрезаем длинное имя
+            const maxChars = gen === 0 ? 30 : 20;
+            const displayName = person.label.length > maxChars ? person.label.substring(0, maxChars) + '...' : person.label;
+            text.textContent = displayName + (person.death_date && person.death_date !== "null" ? ' †' : '');
+
+            svg.appendChild(text);
+        }
+    }
+
+    container.innerHTML = '';
+    container.appendChild(svg);
+}
+
+function createArcPath(cx, cy, innerRadius, outerRadius, startAngle, endAngle) {
+    const x1 = cx + outerRadius * Math.cos(startAngle);
+    const y1 = cy + outerRadius * Math.sin(startAngle);
+    const x2 = cx + outerRadius * Math.cos(endAngle);
+    const y2 = cy + outerRadius * Math.sin(endAngle);
+    const x3 = cx + innerRadius * Math.cos(endAngle);
+    const y3 = cy + innerRadius * Math.sin(endAngle);
+    const x4 = cx + innerRadius * Math.cos(startAngle);
+    const y4 = cy + innerRadius * Math.sin(startAngle);
+
+    const largeArcFlag = endAngle - startAngle > Math.PI ? 1 : 0;
+
+    return `M ${x1} ${y1} A ${outerRadius} ${outerRadius} 0 ${largeArcFlag} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerRadius} ${innerRadius} 0 ${largeArcFlag} 0 ${x4} ${y4} Z`;
 }
 
 function showPersonSidebar(personId, data) {
