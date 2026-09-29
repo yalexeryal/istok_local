@@ -2,208 +2,478 @@
 
 {% block title %}{{ tree.name }} — Исток{% endblock %}
 
-{% block extra_head %}
-<style>
-    #cy { width: 100%; height: 600px; border: 1px solid #e5e7eb; border-radius: 0.5rem; background: #f9fafb; }
-    .view-section { display: none; }
-    .view-section.active { display: block; }
-</style>
-<!-- Подключаем dagre для строгого иерархического расположения -->
-<script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
-<script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
-{% endblock %}
-
 {% block content %}
-<div class="mb-8">
-    <div class="flex items-start justify-between flex-wrap gap-4">
-        <div>
-            <h1 class="text-3xl font-bold text-gray-900">{{ tree.name }}</h1>
-            {% if tree.description %}<p class="mt-2 text-gray-600">{{ tree.description }}</p>{% endif %}
-            <div class="mt-4 flex items-center space-x-4 text-sm text-gray-500">
-                <span>👥 {{ persons_count }} персон</span>
-                <span>🔑 Ваша роль: {{ user_role }}</span>
-                <span>📅 Обновлено: {{ tree.updated_at|date:"d.m.Y" }}</span>
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Заголовок и управление -->
+    <div class="mb-6">
+        <div class="flex items-center justify-between flex-wrap gap-4 mb-4">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900">{{ tree.name }}</h1>
+                {% if tree.description %}
+                    <p class="mt-1 text-gray-600">{{ tree.description }}</p>
+                {% endif %}
+                <p class="mt-2 text-sm text-gray-500">
+                    Персон: {{ persons_count }} · Ваша роль: {{ user_role }}
+                </p>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+                {% if can_edit %}
+                    <a href="{% url 'genealogy:person_create' tree.pk %}"
+                       class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
+                        + Добавить персону
+                    </a>
+                    <a href="{% url 'genealogy:tree_export' tree.pk %}"
+                       class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition font-medium">
+                        ⬇ Экспорт
+                    </a>
+                {% endif %}
+                <a href="{% url 'genealogy:tree_list' %}"
+                   class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium">
+                    ← К списку деревьев
+                </a>
             </div>
         </div>
-        <a href="{% url 'genealogy:tree_list' %}" class="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium transition">← Назад к списку</a>
-    </div>
-</div>
 
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-    <div class="flex items-center justify-between mb-4">
-        <h2 class="text-xl font-semibold text-gray-900">Визуализация дерева</h2>
-        <div class="flex bg-gray-100 rounded-md p-1">
-            <button id="btn-graph" class="px-4 py-1.5 rounded-md text-sm font-medium bg-white text-gray-900 shadow-sm transition" onclick="switchView('graph')">Граф</button>
-            <button id="btn-table" class="px-4 py-1.5 rounded-md text-sm font-medium text-gray-600 hover:text-gray-900 transition" onclick="switchView('table')">Таблица</button>
+        <!-- Переключатель видов визуализации -->
+        <div class="flex gap-2 items-center flex-wrap">
+            <span class="text-sm font-medium text-gray-700">Вид:</span>
+            <button id="btn-hierarchy"
+                    class="view-btn px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white font-medium transition">
+                🌳 Иерархическое дерево
+            </button>
+            <button id="btn-graph"
+                    class="view-btn px-3 py-1.5 text-sm rounded-md bg-gray-200 text-gray-700 font-medium transition hover:bg-gray-300">
+                🕸️ Свободный граф
+            </button>
+            <div class="ml-auto flex gap-2">
+                <button id="btn-zoom-in"
+                        class="px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded transition" title="Приблизить">
+                    🔍+
+                </button>
+                <button id="btn-zoom-out"
+                        class="px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded transition" title="Отдалить">
+                    🔍−
+                </button>
+                <button id="btn-fit"
+                        class="px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded transition" title="Вписать в экран">
+                    ⤢
+                </button>
+            </div>
         </div>
     </div>
 
-    <!-- Вид Графа -->
-    <div id="view-graph" class="view-section active">
-        <div id="cy"></div>
-        <div class="mt-4 text-sm text-gray-600">
-            <p><strong>Управление:</strong> Перетаскивайте узлы, используйте колёсико мыши для масштабирования. Кликните на узел для просмотра карточки персоны.</p>
+    <!-- Контейнер для визуализации -->
+    <div id="cy" class="bg-white rounded-lg shadow-sm border border-gray-200 relative"
+         style="width: 100%; height: 70vh; min-height: 600px;">
+        <div id="cy-loading" class="absolute inset-0 flex items-center justify-center bg-white z-10 rounded-lg">
+            <div class="text-center">
+                <div class="text-4xl mb-2 animate-spin">🌳</div>
+                <p class="text-gray-500">Загрузка дерева...</p>
+            </div>
         </div>
     </div>
 
-    <!-- Вид Таблицы -->
-    <div id="view-table" class="view-section">
+    <!-- Легенда -->
+    <div class="mt-4 flex gap-4 flex-wrap text-sm text-gray-600">
+        <div class="flex items-center gap-2">
+            <div class="w-4 h-4 rounded bg-blue-100 border-2 border-blue-500"></div>
+            <span>Мужчина</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="w-4 h-4 rounded bg-pink-100 border-2 border-pink-500"></div>
+            <span>Женщина</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="w-4 h-4 rounded bg-gray-100 border-2 border-gray-400"></div>
+            <span>Пол не указан</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="w-4 h-4 rounded bg-yellow-50 border-2 border-yellow-500"></div>
+            <span>Центральная персона</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="w-4 h-4 rounded bg-gray-200 border-2 border-black"></div>
+            <span>Умерший (траурная лента)</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-0.5 bg-purple-500 border-t-2 border-dashed border-purple-500"></div>
+            <span>Супруг(а)</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-0.5 bg-gray-500"></div>
+            <span>Родитель → Ребёнок</span>
+        </div>
+    </div>
+
+    <!-- Подсказка -->
+    <div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-900">
+        💡 <strong>Подсказка:</strong> Кликните по персоне в графе, чтобы увидеть её карточку справа.
+        В карточке можно сделать персону центральной (перестроить дерево вокруг неё) или открыть полную карточку.
+    </div>
+
+    <!-- Список персон (ниже графа) -->
+    <div class="mt-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">Все персоны дерева</h2>
         {% if persons %}
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Имя</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Пол</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Рождение</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Смерть</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Возраст</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        {% for person in persons %}
-                            <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='{% url 'genealogy:person_detail' person.pk %}'">
-                                <td class="px-6 py-4 whitespace-nowrap"><div class="text-sm font-medium text-gray-900">{{ person.full_name_display }}</div></td>
-                                <td class="px-6 py-4 whitespace-nowrap"><div class="text-sm text-gray-500">{{ person.get_gender_display }}</div></td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <div class="text-sm text-gray-500">
-                                        {% if person.birth_date %}{{ person.birth_date|date:"d.m.Y" }}{% if person.is_birth_date_approx %} <span class="text-xs text-gray-400">(прибл.)</span>{% endif %}
-                                        {% else %}—{% endif %}
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <div class="text-sm text-gray-500">
-                                        {% if person.death_date %}{{ person.death_date|date:"d.m.Y" }}{% if person.is_death_date_approx %} <span class="text-xs text-gray-400">(прибл.)</span>{% endif %}
-                                        {% else %}—{% endif %}
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <div class="text-sm text-gray-500">
-                                        {% if person.age %}{{ person.age }}{% if person.is_alive %} <span class="text-xs text-green-600">(жив)</span>{% else %} <span class="text-xs text-gray-400">(†)</span>{% endif %}
-                                        {% else %}—{% endif %}
-                                    </div>
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {% for person in persons %}
+                    <a href="{% url 'genealogy:person_detail' person.pk %}"
+                       class="block p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-md transition">
+                        <div class="font-semibold text-blue-600 hover:text-blue-800">
+                            {{ person.full_name_display }}
+                        </div>
+                        <div class="text-sm text-gray-600 mt-1">
+                            {% if person.birth_date %}
+                                {{ person.birth_date|date:"d.m.Y" }}
+                                {% if person.death_date %} — {{ person.death_date|date:"d.m.Y" }}{% endif %}
+                            {% else %}
+                                Даты не указаны
+                            {% endif %}
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            {{ person.get_gender_display }}
+                            {% if person.age %} · {{ person.age }} лет{% endif %}
+                        </div>
+                    </a>
+                {% endfor %}
             </div>
         {% else %}
-            <div class="text-center py-12">
-                <span class="text-6xl mb-4 block" aria-hidden="true">🌱</span>
-                <p class="text-gray-600">В этом дереве пока нет персон.</p>
-            </div>
+            <p class="text-gray-500 italic">В дереве пока нет персон.
+                {% if can_edit %}
+                    <a href="{% url 'genealogy:person_create' tree.pk %}" class="text-blue-600 hover:text-blue-800">Добавить первую персону →</a>
+                {% endif %}
+            </p>
         {% endif %}
     </div>
 </div>
 
-<!-- Кнопки действий -->
-{% if can_edit %}
-    <div class="flex flex-wrap gap-2 mb-8">
-        <a href="{% url 'genealogy:person_create' tree.pk %}" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium text-sm">+ Добавить персону</a>
-        <a href="{% url 'genealogy:relationship_create' tree.pk %}" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition font-medium text-sm">+ Добавить связь</a>
-        <a href="{% url 'genealogy:tree_export' tree.pk %}" class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition font-medium text-sm">⬇ Экспорт</a>
+<!-- БОКОВАЯ ПАНЕЛЬ С КАРТОЧКОЙ ПЕРСОНЫ -->
+<div id="person-sidebar"
+     class="fixed top-0 right-0 h-full w-96 bg-white shadow-2xl border-l border-gray-200 z-50 transform translate-x-full transition-transform duration-300 ease-in-out overflow-y-auto">
+
+    <!-- Кнопка закрытия -->
+    <button id="sidebar-close"
+            class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition text-gray-600 hover:text-gray-900 z-10">
+        ✕
+    </button>
+
+    <!-- Содержимое панели -->
+    <div id="sidebar-content" class="p-6 pt-14">
+        <div class="text-center text-gray-500">
+            <p>Выберите персону в графе</p>
+        </div>
     </div>
-{% endif %}
-{% endblock %}
+</div>
 
-{% block extra_scripts %}
+<!-- Подключение Cytoscape и расширений -->
+<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+
 <script>
-    function switchView(view) {
-        const graphBtn = document.getElementById('btn-graph');
-        const tableBtn = document.getElementById('btn-table');
-        const graphView = document.getElementById('view-graph');
-        const tableView = document.getElementById('view-table');
+window.addEventListener('load', function() {
+    console.log('Инициализация визуализации дерева...');
 
-        if (view === 'graph') {
-            graphBtn.classList.add('bg-white', 'text-gray-900', 'shadow-sm');
-            graphBtn.classList.remove('text-gray-600');
-            tableBtn.classList.remove('bg-white', 'text-gray-900', 'shadow-sm');
-            tableBtn.classList.add('text-gray-600');
-            graphView.classList.add('active');
-            tableView.classList.remove('active');
-            if (window.cyInstance) {
-                window.cyInstance.resize();
-                window.cyInstance.layout({ name: 'dagre', rankDir: 'TB', nodeSep: 80, rankSep: 180, padding: 40 }).run();
-            }
-        } else {
-            tableBtn.classList.add('bg-white', 'text-gray-900', 'shadow-sm');
-            tableBtn.classList.remove('text-gray-600');
-            graphBtn.classList.remove('bg-white', 'text-gray-900', 'shadow-sm');
-            graphBtn.classList.add('text-gray-600');
-            tableView.classList.add('active');
-            graphView.classList.remove('active');
+    const cyContainer = document.getElementById('cy');
+    const loadingEl = document.getElementById('cy-loading');
+    const sidebar = document.getElementById('person-sidebar');
+    const sidebarContent = document.getElementById('sidebar-content');
+    const sidebarClose = document.getElementById('sidebar-close');
+
+    function setLoadingMessage(html) {
+        if (loadingEl) loadingEl.innerHTML = html;
+        else if (cyContainer) cyContainer.innerHTML = html;
+    }
+
+    if (typeof cytoscape === 'undefined') {
+        console.error('Cytoscape не загружен!');
+        setLoadingMessage(`<div class="flex items-center justify-center h-full text-red-500"><div class="text-center"><div class="text-4xl mb-2">⚠️</div><p>Ошибка: Cytoscape не загружен</p></div></div>`);
+        return;
+    }
+
+    let dagreAvailable = false;
+    if (typeof dagre !== 'undefined' && typeof cytoscapeDagre !== 'undefined') {
+        try {
+            cytoscape.use(cytoscapeDagre);
+            dagreAvailable = true;
+            console.log('Расширение dagre успешно зарегистрировано');
+        } catch (e) {
+            console.error('Ошибка регистрации dagre:', e);
         }
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
-        const treeId = {{ tree.pk }};
-        fetch(`/api/tree/${treeId}/data/`)
-            .then(response => response.json())
-            .then(data => {
-                window.cyInstance = cytoscape({
-                    container: document.getElementById('cy'),
-                    elements: [...data.nodes, ...data.edges],
-                    style: [
-                        {
-                            selector: 'node',
-                            style: {
-                                'label': 'data(label)',
-                                'background-color': function(ele) {
-                                    return ele.data('gender') === 'male' ? '#3b82f6' : ele.data('gender') === 'female' ? '#ec4899' : '#6b7280';
-                                },
-                                'color': '#ffffff',
-                                'text-valign': 'center',
-                                'text-halign': 'center',
-                                'width': '100px',
-                                'height': '100px',
-                                'font-size': '11px',
-                                'font-weight': 'bold',
-                                'text-wrap': 'wrap',
-                                'text-max-width': '90px',
-                                'border-width': 2,
-                                'border-color': '#ffffff',
-                                'shape': 'roundrectangle'
-                            }
-                        },
-                        {
-                            selector: 'edge',
-                            style: {
-                                'width': 2,
-                                'line-color': '#94a3b8',
-                                'target-arrow-color': '#94a3b8',
-                                'target-arrow-shape': 'triangle',
-                                'curve-style': 'bezier',
-                                'label': 'data(label)',
-                                'font-size': '9px',
-                                'color': '#64748b',
-                                'text-rotation': 'autorotate',
-                                'text-background-color': '#ffffff',
-                                'text-background-opacity': 0.9,
-                                'text-background-padding': '2px'
-                            }
-                        }
-                    ],
-                    layout: {
-                        name: 'dagre',
-                        rankDir: 'TB',
-                        nodeSep: 80,
-                        rankSep: 180,
-                        padding: 40,
-                        animate: true,
-                        animationDuration: 600,
-                        animationEasing: 'ease-in-out'
-                    },
-                    userZoomingEnabled: true,
-                    userPanningEnabled: true,
-                    boxSelectionEnabled: false
-                });
+    let cy = null;
+    let currentData = null;
+    let currentLayout = 'hierarchy';
+    let currentCenterPersonId = null;
 
-                window.cyInstance.on('tap', 'node', function(evt) {
-                    window.location = `/person/${evt.target.data('id')}/`;
-                });
-            })
-            .catch(error => console.error('Ошибка загрузки данных дерева:', error));
+    // SVG траурной ленты (исправлен для совместимости)
+    const mourningRibbonSvg = 'url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDMwIDMwIj48cGF0aCBkPSJNMzAgMCBMMzAgMTIgTDE4IDAgWiIgZmlsbD0iIzAwMDAwMCIgb3BhY2l0eT0iMC45Ii8+PC9zdmc+")';
+
+    // Загрузка данных из API
+    async function loadData(centerPersonId = null) {
+        try {
+            console.log('Загрузка данных из API...');
+            let url = `/api/tree/{{ tree.pk }}/hierarchy/`;
+            if (centerPersonId) {
+                url += `?center_person=${centerPersonId}`;
+            }
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ошибка: ${response.status}`);
+
+            currentData = await response.json();
+            currentCenterPersonId = currentData.center_person;
+            console.log('Данные загружены. Центральная персона ID:', currentCenterPersonId);
+
+            if (!currentData.nodes || currentData.nodes.length === 0) {
+                setLoadingMessage(`<div class="text-center text-gray-500"><div class="text-4xl mb-2">📭</div><p>В дереве пока нет персон</p></div>`);
+                return;
+            }
+
+            renderGraph();
+        } catch (error) {
+            console.error('Ошибка загрузки данных:', error);
+            setLoadingMessage(`<div class="text-center text-red-500"><div class="text-4xl mb-2">⚠️</div><p>Не удалось загрузить данные</p><p class="text-sm mt-2">${error.message}</p></div>`);
+        }
+    }
+
+    function prepareElements(data) {
+        const nodes = data.nodes.map(n => {
+            const nodeData = {
+                id: n.id, label: n.label, first_name: n.first_name,
+                last_name: n.last_name, gender: n.gender,
+                birth_date: n.birth_date, death_date: n.death_date,
+                photo_url: n.photo_url,
+            };
+            // Добавляем класс 'dead', если есть дата смерти
+            if (n.death_date && n.death_date !== "null" && n.death_date !== "") {
+                nodeData.classes = 'dead';
+            }
+            return { data: nodeData };
+        });
+
+        const edges = data.links.map((l, idx) => ({
+            data: { id: `e${idx}`, source: l.source, target: l.target, type: l.type, label: l.label }
+        }));
+
+        return [...nodes, ...edges];
+    }
+
+    function renderGraph() {
+        if (!currentData) return;
+        const elements = prepareElements(currentData);
+        if (cy) cy.destroy();
+
+        let layoutOptions = (currentLayout === 'hierarchy' && dagreAvailable) ? {
+            name: 'dagre', rankDir: 'TB', nodeSep: 50, rankSep: 80, edgeSep: 20, spacingFactor: 1.2, fit: false, padding: 50
+        } : {
+            name: 'cose', animate: false, nodeDimensionsIncludeLabels: true, idealEdgeLength: 100, nodeOverlap: 20, padding: 30, fit: false
+        };
+
+        try {
+            cy = cytoscape({
+                container: cyContainer,
+                elements: elements,
+                style: [
+                    { selector: 'node', style: { 'label': 'data(label)', 'text-wrap': 'wrap', 'text-max-width': '150px', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '12px', 'font-weight': 'bold', 'color': '#1f2937', 'background-color': '#dbeafe', 'border-width': 2, 'border-color': '#3b82f6', 'width': 160, 'height': 60, 'shape': 'round-rectangle', 'padding': '10px' } },
+                    { selector: 'node[gender = "male"]', style: { 'background-color': '#dbeafe', 'border-color': '#3b82f6' } },
+                    { selector: 'node[gender = "female"]', style: { 'background-color': '#fce7f3', 'border-color': '#ec4899' } },
+                    { selector: 'node[gender = "unknown"]', style: { 'background-color': '#f3f4f6', 'border-color': '#9ca3af' } },
+                    // ИСПРАВЛЕНО: используем '100%' и '0%' вместо 'right' и 'top'
+                    { selector: 'node.dead', style: { 'background-color': '#e5e7eb', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.6, 'background-image': mourningRibbonSvg, 'background-fit': 'none', 'background-position-x': '100%', 'background-position-y': '0%', 'background-width': '20px', 'background-height': '20px', 'background-clip': 'none' } },
+                    { selector: `node[id = "${currentCenterPersonId}"]`, style: { 'border-width': 4, 'border-color': '#eab308', 'background-color': '#fef9c3' } },
+                    { selector: 'edge[type = "spouse"]', style: { 'width': 3, 'line-color': '#a855f7', 'curve-style': 'straight', 'line-style': 'dashed' } },
+                    { selector: 'edge[type = "biological_parent"]', style: { 'width': 2, 'line-color': '#6b7280', 'target-arrow-color': '#6b7280', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 1.2 } },
+                    { selector: 'edge', style: { 'width': 1.5, 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier' } },
+                ],
+                minZoom: 0.2, maxZoom: 3, wheelSensitivity: 0.5,
+            });
+
+            const layout = cy.layout(layoutOptions);
+            layout.on('layoutstop', function() {
+                cy.fit(null, 50);
+                if (loadingEl) loadingEl.style.display = 'none';
+            });
+            layout.run();
+
+            // Клик по персоне → открываем боковую карточку
+            cy.on('tap', 'node', function(evt) {
+                const nodeId = evt.target.id();
+                const nodeData = evt.target.data();
+                showPersonSidebar(nodeId, nodeData);
+            });
+
+            // Эффект при наведении
+            cy.on('mouseover', 'node', function(evt) {
+                evt.target.style('border-width', 4);
+                evt.target.style('z-index', 999);
+            });
+
+            cy.on('mouseout', 'node', function(evt) {
+                const node = evt.target;
+                if (node.hasClass('dead')) {
+                    node.style('border-width', 3);
+                    node.style('border-color', '#000000');
+                } else if (node.id() === currentCenterPersonId) {
+                    node.style('border-width', 4);
+                    node.style('border-color', '#eab308');
+                } else {
+                    node.style('border-width', 2);
+                }
+                node.style('z-index', 1);
+            });
+
+            console.log('Граф успешно отрисован');
+        } catch (error) {
+            console.error('Ошибка отрисовки графа:', error);
+            setLoadingMessage(`<div class="text-center text-red-500"><div class="text-4xl mb-2">⚠️</div><p>Ошибка отрисовки</p><p class="text-sm mt-2">${error.message}</p></div>`);
+        }
+    }
+
+    // Функция: Показать боковую карточку персоны
+    function showPersonSidebar(personId, data) {
+        const isDead = data.death_date && data.death_date !== "null" && data.death_date !== "";
+        const isCenter = personId === currentCenterPersonId;
+
+        const formatDate = (dateStr) => {
+            if (!dateStr || dateStr === "null") return null;
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+        };
+
+        let ageText = '';
+        if (data.birth_date && data.birth_date !== "null") {
+            const birth = new Date(data.birth_date);
+            const end = isDead && data.death_date ? new Date(data.death_date) : new Date();
+            let age = end.getFullYear() - birth.getFullYear();
+            const m = end.getMonth() - birth.getMonth();
+            if (m < 0 || (m === 0 && end.getDate() < birth.getDate())) age--;
+            ageText = `${age} ${isDead ? '(на момент смерти)' : '(жив(а))'}`;
+        }
+
+        const birthFormatted = formatDate(data.birth_date);
+        const deathFormatted = formatDate(data.death_date);
+
+        sidebarContent.innerHTML = `
+            <div class="space-y-4">
+                <div class="flex justify-center">
+                    ${data.photo_url
+                        ? `<img src="${data.photo_url}" alt="${data.label}" class="w-32 h-32 object-cover rounded-lg border-2 ${isDead ? 'border-gray-400 grayscale' : 'border-gray-300'}">`
+                        : `<div class="w-32 h-32 bg-gray-100 rounded-lg flex items-center justify-center border-2 border-gray-300">
+                             <span class="text-6xl text-gray-400">👤</span>
+                           </div>`
+                    }
+                </div>
+
+                <div class="text-center">
+                    <h2 class="text-2xl font-bold text-gray-900">${data.label}</h2>
+                    ${isDead ? '<div class="text-sm text-gray-500 mt-1">✝ Умер(ла)</div>' : ''}
+                    ${isCenter ? '<div class="inline-block mt-2 px-3 py-1 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded-full border border-yellow-300">⭐ Центральная персона</div>' : ''}
+                </div>
+
+                <div class="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Пол:</span>
+                        <span class="font-medium text-gray-900">
+                            ${data.gender === 'male' ? 'Мужской' : data.gender === 'female' ? 'Женский' : 'Не указан'}
+                        </span>
+                    </div>
+                    ${birthFormatted ? `
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Дата рождения:</span>
+                        <span class="font-medium text-gray-900">${birthFormatted}</span>
+                    </div>` : ''}
+                    ${deathFormatted ? `
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Дата смерти:</span>
+                        <span class="font-medium text-gray-900">${deathFormatted}</span>
+                    </div>` : ''}
+                    ${ageText ? `
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Возраст:</span>
+                        <span class="font-medium text-gray-900">${ageText}</span>
+                    </div>` : ''}
+                </div>
+
+                <div class="space-y-2 pt-2">
+                    ${!isCenter ? `
+                    <button id="btn-make-center"
+                            class="w-full px-4 py-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition font-medium flex items-center justify-center gap-2">
+                        <span>⭐</span>
+                        <span>Сделать центральной фигурой</span>
+                    </button>` : ''}
+                    <a href="/person/${personId}/"
+                       class="block w-full px-4 py-2.5 bg-blue-600 text-white text-center rounded-md hover:bg-blue-700 transition font-medium">
+                        📋 Открыть полную карточку
+                    </a>
+                </div>
+
+                <div class="text-xs text-gray-500 italic text-center pt-2 border-t border-gray-200">
+                    Кликните по другой персоне в графе, чтобы увидеть её карточку
+                </div>
+            </div>
+        `;
+
+        sidebar.classList.remove('translate-x-full');
+
+        const btnMakeCenter = document.getElementById('btn-make-center');
+        if (btnMakeCenter) {
+            btnMakeCenter.addEventListener('click', function() {
+                console.log('Делаем персону центральной:', personId);
+                sidebar.classList.add('translate-x-full');
+                loadingEl.style.display = 'flex';
+                loadingEl.innerHTML = `<div class="text-center"><div class="text-4xl mb-2 animate-spin">🌳</div><p class="text-gray-500">Перестроение дерева...</p></div>`;
+                loadData(personId);
+            });
+        }
+    }
+
+    sidebarClose.addEventListener('click', function() {
+        sidebar.classList.add('translate-x-full');
     });
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !sidebar.classList.contains('translate-x-full')) {
+            sidebar.classList.add('translate-x-full');
+        }
+    });
+
+    document.getElementById('btn-hierarchy').addEventListener('click', function() {
+        currentLayout = 'hierarchy';
+        updateButtons();
+        if (cy) {
+            loadingEl.style.display = 'flex';
+            loadingEl.innerHTML = `<div class="text-center"><div class="text-4xl mb-2 animate-spin">🌳</div><p class="text-gray-500">Перестроение...</p></div>`;
+            renderGraph();
+        }
+    });
+    document.getElementById('btn-graph').addEventListener('click', function() {
+        currentLayout = 'graph';
+        updateButtons();
+        if (cy) {
+            loadingEl.style.display = 'flex';
+            loadingEl.innerHTML = `<div class="text-center"><div class="text-4xl mb-2 animate-spin">🌳</div><p class="text-gray-500">Перестроение...</p></div>`;
+            renderGraph();
+        }
+    });
+
+    function updateButtons() {
+        const btnH = document.getElementById('btn-hierarchy');
+        const btnG = document.getElementById('btn-graph');
+        if (currentLayout === 'hierarchy') {
+            btnH.className = 'view-btn px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white font-medium transition';
+            btnG.className = 'view-btn px-3 py-1.5 text-sm rounded-md bg-gray-200 text-gray-700 font-medium transition hover:bg-gray-300';
+        } else {
+            btnG.className = 'view-btn px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white font-medium transition';
+            btnH.className = 'view-btn px-3 py-1.5 text-sm rounded-md bg-gray-200 text-gray-700 font-medium transition hover:bg-gray-300';
+        }
+    }
+
+    document.getElementById('btn-zoom-in').addEventListener('click', function() { if (cy) cy.zoom(cy.zoom() * 1.3); });
+    document.getElementById('btn-zoom-out').addEventListener('click', function() { if (cy) cy.zoom(cy.zoom() / 1.3); });
+    document.getElementById('btn-fit').addEventListener('click', function() { if (cy) cy.fit(null, 50); });
+
+    loadData();
+});
 </script>
 {% endblock %}

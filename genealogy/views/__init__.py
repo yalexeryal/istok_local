@@ -4,6 +4,7 @@ Views (обработчики запросов) приложения genealogy.
 Этот модуль экспортирует все views для удобства импорта.
 """
 
+from .api_views import TreeHierarchyAPI
 from .auth_views import RegisterView, WelcomeView
 from .event_views import (
     LifeEventCreateView,
@@ -34,23 +35,24 @@ from .tree_views import (
 )
 
 __all__ = [
-    "LifeEventCreateView",
-    "LifeEventDeleteView",
-    "LifeEventUpdateView",
-    "LinkRelativeView",
-    "PersonCreateView",
-    "PersonDeleteView",
-    "PersonDetailView",
-    "PersonUpdateView",
+    "TreeHierarchyAPI",
+    "WelcomeView",
     "RegisterView",
-    "RelationshipCreateView",
-    "RelationshipDeleteView",
+    "TreeListView",
     "TreeCreateView",
     "TreeDetailView",
-    "TreeExportResultView",
-    "TreeExportView",
-    "TreeImportView",
-    "TreeListView",
-    "WelcomeView",
     "tree_data_api",
+    "PersonCreateView",
+    "PersonUpdateView",
+    "PersonDeleteView",
+    "PersonDetailView",
+    "LinkRelativeView",
+    "RelationshipCreateView",
+    "RelationshipDeleteView",
+    "LifeEventCreateView",
+    "LifeEventUpdateView",
+    "LifeEventDeleteView",
+    "TreeExportView",
+    "TreeExportResultView",
+    "TreeImportView",
 ]
