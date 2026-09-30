@@ -16,7 +16,6 @@ from genealogy.models import Person, Relationship, RelationshipTypeEnum, Tree
 class TreeHierarchyAPI(LoginRequiredMixin, View):
     """
     API для получения иерархии дерева вокруг центральной персоны.
-    Возвращает всех родственников в пределах 3 степеней родства (поколений).
     """
 
     def get(self, request, tree_pk):
@@ -28,7 +27,8 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
         if center_person_id:
             center_person = get_object_or_404(Person, pk=center_person_id, tree=tree)
         else:
-            center_person = tree.persons.first()
+            # По умолчанию центральная фигура — самая первая персона, созданная в дереве.
+            center_person = tree.persons.order_by("id").first()
             if not center_person:
                 return JsonResponse({"center_person": None, "nodes": [], "links": []})
 
@@ -97,7 +97,6 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
 class TreeAncestorsAPI(LoginRequiredMixin, View):
     """
     API для получения предков выбранной персоны (веерная диаграмма).
-    Возвращает предков по поколениям (до 6 поколений).
     """
 
     def get(self, request, tree_pk):
@@ -109,16 +108,14 @@ class TreeAncestorsAPI(LoginRequiredMixin, View):
         if center_person_id:
             center_person = get_object_or_404(Person, pk=center_person_id, tree=tree)
         else:
-            center_person = tree.persons.first()
+            # По умолчанию центральная фигура — самая первая персона, созданная в дереве.
+            center_person = tree.persons.order_by("id").first()
             if not center_person:
                 return JsonResponse({"center_person": None, "generations": []})
 
         max_generations = 6
-
-        # Собираем предков по поколениям
         generations = []
 
-        # Поколение 0 - центральная персона
         generations.append(
             [
                 {
@@ -135,7 +132,6 @@ class TreeAncestorsAPI(LoginRequiredMixin, View):
             ]
         )
 
-        # Поколения 1-6 - предки
         current_generation_persons = [center_person]
 
         for gen in range(1, max_generations + 1):
@@ -143,7 +139,6 @@ class TreeAncestorsAPI(LoginRequiredMixin, View):
             gen_data = []
 
             for person in current_generation_persons:
-                # Находим родителей
                 parent_rels = Relationship.objects.filter(
                     to_person=person,
                     relationship_type__in=[
