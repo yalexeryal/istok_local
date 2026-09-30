@@ -28,14 +28,15 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
         if center_person_id:
             center_person = get_object_or_404(Person, pk=center_person_id, tree=tree)
         else:
-            # Если центральная персона не указана, берем первую персону в дереве
-            center_person = tree.persons.first()
+            # По умолчанию центральная фигура — самая первая персона, созданная в дереве.
+            # Обычно это сам владелец, так как он добавляет себя первым при создании дерева.
+            # (Фильтрация по created_by невозможна, так как этого поля нет в модели Person)
+            center_person = tree.persons.order_by("id").first()
             if not center_person:
                 return JsonResponse({"center_person": None, "nodes": [], "links": []})
 
         max_depth = 3
 
-        # BFS (поиск в ширину) для нахождения всех персон в пределах max_depth
         visited_persons = set()
         queue = deque([(center_person, 0)])
         visited_persons.add(center_person.pk)
@@ -48,7 +49,6 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
             if current_depth >= max_depth:
                 continue
 
-            # Находим все связи текущей персоны
             rels = Relationship.objects.filter(
                 models.Q(from_person=current_person) | models.Q(to_person=current_person)
             ).select_related("from_person", "to_person")
@@ -60,7 +60,6 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
                     relevant_persons[partner.pk] = partner
                     queue.append((partner, current_depth + 1))
 
-        # Формируем список узлов (nodes)
         nodes = []
         for p in relevant_persons.values():
             nodes.append(
@@ -76,7 +75,6 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
                 }
             )
 
-        # Формируем список связей (links) только между найденными персонами
         links = []
         rel_pks = [p.pk for p in relevant_persons.values()]
         relationships = Relationship.objects.filter(from_person__in=rel_pks, to_person__in=rel_pks)
