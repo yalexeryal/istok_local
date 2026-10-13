@@ -17,6 +17,7 @@ from genealogy.models import (
     EventTypeEnum,
     LifeEvent,
     Person,
+    PersonPhoto,
     Relationship,
     RelationshipTypeEnum,
     Tree,
@@ -383,6 +384,11 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
             return HttpResponseForbidden("У вас нет доступа к этой персоне")
         return self.render_to_response(self.get_context_data(object=self.object))
 
+    def get_queryset(self):
+        return Person.objects.select_related("tree").prefetch_related(
+            "relationships_from", "relationships_to", "life_events", "photos"
+        )
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         person = self.object
@@ -565,3 +571,87 @@ class LinkRelativeView(LoginRequiredMixin, View):
             messages.success(request, f'Персона "{selected_person.full_name_display}" успешно добавлена как супруг(а).')
 
         return redirect("genealogy:person_detail", pk=self.parent1.pk)
+
+
+class PersonPhotoUploadView(LoginRequiredMixin, View):
+    """Загрузка новой фотографии для персоны."""
+
+    def post(self, request, person_pk):
+        person = get_object_or_404(Person, pk=person_pk)
+        if not person.tree.user_can_edit(request.user):
+            messages.error(request, "У вас нет прав для добавления фотографий.")
+            return redirect("genealogy:person_detail", pk=person_pk)
+
+        image = request.FILES.get("photo")
+        caption = request.POST.get("caption", "").strip()
+        is_primary = request.POST.get("is_primary") == "on"
+
+        if not image:
+            messages.error(request, "Пожалуйста, выберите файл изображения.")
+            return redirect("genealogy:person_detail", pk=person_pk)
+
+        # Если это главное фото, обновляем аватар персоны
+        if is_primary:
+            person.photo = image
+            person.save()
+
+        # Создаём запись в галерее
+
+        PersonPhoto.objects.create(person=person, image=image, caption=caption, is_primary=is_primary)
+        messages.success(request, "Фотография успешно добавлена.")
+        return redirect("genealogy:person_detail", pk=person_pk)
+
+
+class PersonPhotoDeleteView(LoginRequiredMixin, View):
+    """Удаление фотографии из галереи."""
+
+    def post(self, request, photo_pk):
+        from genealogy.models import PersonPhoto
+
+        photo = get_object_or_404(PersonPhoto, pk=photo_pk)
+
+        if not photo.person.tree.user_can_edit(request.user):
+            messages.error(request, "У вас нет прав для удаления фотографий.")
+            return redirect("genealogy:person_detail", pk=photo.person.pk)
+
+        person_pk = photo.person.pk
+
+        # Если удаляем главное фото, очищаем аватар
+        if photo.is_primary:
+            photo.person.photo = None
+            photo.person.save()
+
+        # Удаляем файл с диска
+        if photo.image:
+            photo.image.delete(save=False)
+
+        photo.delete()
+        messages.success(request, "Фотография удалена.")
+        return redirect("genealogy:person_detail", pk=person_pk)
+
+
+class PersonPhotoSetPrimaryView(LoginRequiredMixin, View):
+    """Установка фотографии как главной (аватар)."""
+
+    def post(self, request, photo_pk):
+        from genealogy.models import PersonPhoto
+
+        photo = get_object_or_404(PersonPhoto, pk=photo_pk)
+
+        if not photo.person.tree.user_can_edit(request.user):
+            messages.error(request, "У вас нет прав для изменения фотографий.")
+            return redirect("genealogy:person_detail", pk=photo.person.pk)
+
+        # Сбрасываем все другие фото как неглавные
+        PersonPhoto.objects.filter(person=photo.person).update(is_primary=False)
+
+        # Устанавливаем текущее как главное
+        photo.is_primary = True
+        photo.save()
+
+        # Обновляем аватар персоны
+        photo.person.photo = photo.image
+        photo.person.save()
+
+        messages.success(request, "Фотография установлена как главная.")
+        return redirect("genealogy:person_detail", pk=photo.person.pk)

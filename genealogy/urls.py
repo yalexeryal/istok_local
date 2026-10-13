@@ -53,4 +53,15 @@ urlpatterns = [
     # === Родственные связи ===
     path("tree/<int:tree_pk>/relationship/add/", views.RelationshipCreateView.as_view(), name="relationship_create"),
     path("relationship/<int:pk>/delete/", views.RelationshipDeleteView.as_view(), name="relationship_delete"),
+    # === Фотографии ===
+    path("person/<int:person_pk>/photo/upload/", views.PersonPhotoUploadView.as_view(), name="person_photo_upload"),
+    path("photo/<int:photo_pk>/delete/", views.PersonPhotoDeleteView.as_view(), name="person_photo_delete"),
+    path(
+        "photo/<int:photo_pk>/set-primary/", views.PersonPhotoSetPrimaryView.as_view(), name="person_photo_set_primary"
+    ),
+    path(
+        "import/conflicts/<int:task_pk>/",
+        views.ImportConflictResolutionView.as_view(),
+        name="import_conflict_resolution",
+    ),
 ]

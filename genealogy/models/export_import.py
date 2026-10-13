@@ -81,6 +81,7 @@ class ImportTask(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name="Дата завершения")
     error_message = models.TextField(null=True, blank=True, verbose_name="Сообщение об ошибке")
+    conflict_data = models.JSONField(default=list, blank=True, verbose_name="Данные о конфликтах импорта")
 
     class Meta:
         verbose_name = "Задача импорта"

@@ -19,7 +19,7 @@ from .enums import (
 )
 from .events import LifeEvent
 from .export_import import ExportTask, ImportTask
-from .person import Person
+from .person import Person, PersonPhoto
 from .relationships import Relationship
 from .tree import Tree, TreeCollaborator
 from .users import ChangeRequest, PrivacySettings, UserProfile
@@ -38,6 +38,7 @@ __all__ = [
     "ImportTask",
     "LifeEvent",
     "Person",
+    "PersonPhoto",
     "PersonStatusEnum",
     "PrivacySettings",
     "Relationship",

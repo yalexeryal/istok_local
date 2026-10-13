@@ -312,3 +312,22 @@ class Person(models.Model):
         final_timeline.extend(other_no_date)
 
         return final_timeline
+
+
+class PersonPhoto(models.Model):
+    """Фотография персоны (галерея)."""
+
+    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name="photos", verbose_name="Персона")
+    image = models.ImageField(upload_to="person_photos/%Y/%m/", verbose_name="Фотография")
+    caption = models.CharField(max_length=200, blank=True, default="", verbose_name="Подпись")
+    is_primary = models.BooleanField(default=False, verbose_name="Главное фото (аватар)")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата добавления")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
+
+    class Meta:
+        verbose_name = "Фотография персоны"
+        verbose_name_plural = "Фотографии персоны"
+        ordering = ["-is_primary", "-created_at"]
+
+    def __str__(self):
+        return f"Фото {self.person.full_name_display} ({self.caption or 'без подписи'})"

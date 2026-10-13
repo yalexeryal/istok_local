@@ -11,7 +11,7 @@ from django.views import View
 from django.views.generic import DetailView
 
 from genealogy.forms import ExportForm, ImportForm
-from genealogy.models import ExportTask, Tree
+from genealogy.models import ExportTask, ImportStatusEnum, ImportTask, Tree
 from genealogy.services.export_service import ExportService
 from genealogy.services.import_service import ImportService
 
@@ -92,15 +92,77 @@ class TreeImportView(LoginRequiredMixin, View):
                 target_tree=form.cleaned_data.get("target_tree"),
             )
             try:
-                service.execute_import(task)
-                messages.success(
-                    request,
-                    f"Импорт успешно завершён. Импортировано персон: {task.person_count}, связей: {task.relationship_count}.",
-                )
-                return (
-                    redirect("genealogy:tree_detail", pk=task.tree.pk) if task.tree else redirect("genealogy:tree_list")
-                )
+                # Анализируем файл и находим конфликты
+                conflicts = service.analyze_import(task)
+
+                # Если есть конфликты — переходим к экрану разрешения
+                if conflicts:
+                    return redirect("genealogy:import_conflict_resolution", task_pk=task.pk)
+                else:
+                    # Конфликтов нет — применяем импорт сразу
+                    service.apply_import(task, [])
+                    messages.success(
+                        request,
+                        f"Импорт успешно завершён. Импортировано персон: {task.person_count}, связей: {task.relationship_count}.",
+                    )
+                    return (
+                        redirect("genealogy:tree_detail", pk=task.tree.pk)
+                        if task.tree
+                        else redirect("genealogy:tree_list")
+                    )
             except Exception as e:
                 messages.error(request, f"Ошибка при импорте: {e}")
                 return redirect("genealogy:tree_import")
         return render(request, self.template_name, {"form": form})
+
+
+class ImportConflictResolutionView(LoginRequiredMixin, View):
+    """Экран разрешения конфликтов импорта."""
+
+    template_name = "genealogy/import_conflict_resolution.html"
+
+    def get(self, request, task_pk):
+        task = get_object_or_404(ImportTask, pk=task_pk, user=request.user)
+
+        if task.status != ImportStatusEnum.PROCESSING:
+            messages.error(request, "Задача импорта не находится в состоянии анализа.")
+            return redirect("genealogy:tree_import")
+
+        context = {
+            "task": task,
+            "conflicts": task.conflict_data,
+            "tree": task.tree,
+        }
+        return render(request, self.template_name, context)
+
+    def post(self, request, task_pk):
+        task = get_object_or_404(ImportTask, pk=task_pk, user=request.user)
+
+        # Парсим решения из формы
+        decisions = []
+        for conflict in task.conflict_data:
+            old_id = conflict["old_id"]
+            action = request.POST.get(f"action_{old_id}", "create")
+
+            decision = {"old_id": old_id, "action": action}
+
+            if action == "merge":
+                existing_person_id = request.POST.get(f"existing_person_{old_id}")
+                if existing_person_id:
+                    decision["existing_person_id"] = int(existing_person_id)
+                else:
+                    decision["action"] = "create"  # Если не выбрана персона — создаём новую
+
+            decisions.append(decision)
+
+        try:
+            service = ImportService()
+            service.apply_import(task, decisions)
+            messages.success(
+                request,
+                f"Импорт успешно завершён. Импортировано персон: {task.person_count}, связей: {task.relationship_count}.",
+            )
+            return redirect("genealogy:tree_detail", pk=task.tree.pk) if task.tree else redirect("genealogy:tree_list")
+        except Exception as e:
+            messages.error(request, f"Ошибка при импорте: {e}")
+            return redirect("genealogy:import_conflict_resolution", task_pk=task_pk)
