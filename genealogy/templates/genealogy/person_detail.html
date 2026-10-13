@@ -264,11 +264,29 @@
                     <div class="border-l-4 {% if item.type == 'own' %}border-blue-500{% else %}border-purple-500{% endif %} pl-4 py-2 relative">
                         <div class="flex items-start justify-between">
                             <div class="flex-1">
-                                <div class="font-medium text-gray-900">
-                                    {{ item.title }}
-                                    {% if item.type == 'relative' %}
-                                        <span class="ml-2 text-xs font-normal text-purple-600 bg-purple-50 px-2 py-0.5 rounded">Событие родственника</span>
-                                    {% endif %}
+                                                                <div class="font-medium text-gray-900 flex items-start gap-2">
+                                    <span class="flex-shrink-0 text-xl leading-none mt-0.5">
+                                        {% if "Смерть" in item.title or "Умер" in item.title %}✝️
+                                        {% elif "Брак" in item.title or "Развод" in item.title %}💍
+                                        {% elif "Рождение сына" in item.title %}👦
+                                        {% elif "Рождение дочери" in item.title %}👧
+                                        {% elif "Рождение" in item.title %}👶
+                                        {% elif "Похороны" in item.title or "Захоронение" in item.title %}⚰️
+                                        {% elif "Образование" in item.title or "Школа" in item.title or "Университет" in item.title %}🎓
+                                        {% elif "Переезд" in item.title %}🏠
+                                        {% elif "Работа" in item.title or "Служба" in item.title or "Карьера" in item.title %}💼
+                                        {% elif "Военн" in item.title or "Армия" in item.title %}🎖️
+                                        {% elif "Крещен" in item.title or "Венчан" in item.title or "Церков" in item.title %}⛪
+                                        {% elif "Наград" in item.title or "Достижен" in item.title %}🏆
+                                        {% else %}📌
+                                        {% endif %}
+                                    </span>
+                                    <span>
+                                        {{ item.title }}
+                                        {% if item.type == 'relative' %}
+                                            <span class="ml-2 text-xs font-normal text-purple-600 bg-purple-50 px-2 py-0.5 rounded">Событие родственника</span>
+                                        {% endif %}
+                                    </span>
                                 </div>
                                 {% if item.date %}
                                     <div class="text-sm text-gray-500">{{ item.date|date:"d E Y" }}</div>
@@ -276,7 +294,7 @@
                                     <div class="text-sm text-gray-400 italic">Дата не указана</div>
                                 {% endif %}
                                 {% if item.location %}
-                                    <div class="text-sm text-gray-600 mt-1">📍 {{ item.location }}</div>
+                                    <div class="text-sm text-gray-500 mt-1 pl-1 border-l-2 border-gray-200 ml-1">{{ item.location }}</div>
                                 {% endif %}
                                 {% if item.description %}
                                     <div class="text-sm text-gray-700 mt-1">{{ item.description }}</div>
