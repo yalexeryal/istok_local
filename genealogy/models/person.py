@@ -197,10 +197,19 @@ class Person(models.Model):
                 }
             )
 
-        # 2. Браки и разводы из связей
+        # 2. Браки и разводы из связей (только если нет соответствующего события LifeEvent)
         for spouse_info in self.get_spouses():
             rel = spouse_info["relationship"]
             partner = spouse_info["person"]
+
+            # Проверяем, есть ли уже событие MARRIAGE/DIVORCE для этой пары
+            existing_marriage_event = self.life_events.filter(
+                event_type__in=[EventTypeEnum.MARRIAGE, EventTypeEnum.DIVORCE], related_person=partner
+            ).exists()
+
+            # Если событие уже есть — пропускаем связь, чтобы не было дублирования
+            if existing_marriage_event:
+                continue
 
             if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
                 title = f"Брак с {partner.full_name_display}"

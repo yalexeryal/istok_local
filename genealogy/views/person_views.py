@@ -236,18 +236,28 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
                 defaults={"created_by": self.request.user, "is_current": True, "start_date": marriage_date or None},
             )
 
-            if marriage_date:
-                for spouse in [self.spouse_of, person]:
-                    LifeEvent.objects.get_or_create(
-                        person=spouse,
-                        event_type=EventTypeEnum.MARRIAGE,
-                        event_date=marriage_date,
-                        related_person=(person if spouse == self.spouse_of else self.spouse_of),
-                        defaults={"location": marriage_place, "created_by": self.request.user},
-                    )
+            # Создаём событие брака у обоих супругов.
+
+            # Если дата не указана — всё равно создаём событие (чтобы связь была видна),
+
+            # но без даты. Пользователь сможет добавить дату позже через редактирование.
+
+            for spouse in [self.spouse_of, person]:
+                related = person if spouse == self.spouse_of else self.spouse_of
+
+                LifeEvent.objects.get_or_create(
+                    person=spouse,
+                    event_type=EventTypeEnum.MARRIAGE,
+                    event_date=marriage_date or None,
+                    related_person=related,
+                    defaults={
+                        "location": marriage_place or "",
+                        "description": f"Брак с {related.full_name_display}",
+                        "created_by": self.request.user,
+                    },
+                )
 
             messages.success(self.request, f'Супруг(а) "{person.full_name_display}" успешно создан(а).')
-
         elif self.parent1 and self.relation in ["father", "mother"]:
             Relationship.objects.get_or_create(
                 from_person=person,
