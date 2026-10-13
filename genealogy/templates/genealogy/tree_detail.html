@@ -80,14 +80,40 @@
         </div>
     </div>
 
-    <!-- Табличный вид -->
+        <!-- Табличный вид -->
     <div x-show="view === 'table'" class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div class="mb-4 flex items-center justify-between">
+        <div class="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <h2 class="text-xl font-semibold text-gray-900">Все персоны дерева</h2>
-            <div class="relative">
-                <input type="text" x-model="search" placeholder="Поиск по имени..." class="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64">
-                <span class="absolute left-3 top-2.5 text-gray-400">🔍</span>
+
+            <!-- Панель фильтров -->
+            <div class="flex flex-wrap gap-2 items-center">
+                <div class="relative">
+                    <input type="text" x-model="search" placeholder="Поиск по имени..." class="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-48 sm:w-64 text-sm">
+                    <span class="absolute left-3 top-2.5 text-gray-400">🔍</span>
+                </div>
+
+                <select x-model="filterGender" class="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white">
+                    <option value="">Все полы</option>
+                    <option value="Мужской">Мужской</option>
+                    <option value="Женский">Женский</option>
+                    <option value="Не указан">Не указан</option>
+                </select>
+
+                <select x-model="filterAlive" class="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white">
+                    <option value="">Все статусы</option>
+                    <option value="alive">Живые</option>
+                    <option value="deceased">Умершие</option>
+                </select>
+
+                <button @click="resetFilters()" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition text-sm font-medium">
+                    Сбросить
+                </button>
             </div>
+        </div>
+
+        <!-- Счетчик найденных персон -->
+        <div class="mb-3 text-sm text-gray-600" x-show="search || filterGender || filterAlive">
+            Найдено персон: <strong x-text="filteredPersons.length"></strong> из <strong x-text="persons.length"></strong>
         </div>
 
         <div class="overflow-x-auto">
@@ -134,7 +160,7 @@
                     </template>
                     <tr x-show="filteredPersons.length === 0">
                         <td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500">
-                            Персоны не найдены
+                            Персоны не найдены по заданным критериям
                         </td>
                     </tr>
                 </tbody>
@@ -179,9 +205,11 @@ let dagreAvailable = false;
 
 // === ALPINE.JS ДЛЯ ТАБЛИЦЫ И УПРАВЛЕНИЯ ВИДОМ ===
 document.addEventListener('alpine:init', () => {
-    Alpine.data('personTable', () => ({
+        Alpine.data('personTable', () => ({
         view: 'hierarchy',
         search: '',
+        filterGender: '',
+        filterAlive: '',
         sortKey: 'last_name',
         sortAsc: true,
         persons: {{ persons_json|safe }},
@@ -204,7 +232,24 @@ document.addEventListener('alpine:init', () => {
         },
 
         get filteredPersons() {
-            let result = this.persons.filter(p => p.full_name.toLowerCase().includes(this.search.toLowerCase()));
+            let result = this.persons.filter(p => {
+                // 1. Поиск по имени (полный текст)
+                const matchesSearch = p.full_name.toLowerCase().includes(this.search.toLowerCase());
+
+                // 2. Фильтр по полу
+                const matchesGender = this.filterGender === '' || p.gender === this.filterGender;
+
+                // 3. Фильтр по статусу жизни
+                let matchesAlive = true;
+                if (this.filterAlive === 'alive') {
+                    matchesAlive = p.is_alive === true;
+                } else if (this.filterAlive === 'deceased') {
+                    matchesAlive = p.is_alive === false;
+                }
+
+                return matchesSearch && matchesGender && matchesAlive;
+            });
+
             result.sort((a, b) => {
                 let valA = a[this.sortKey] || '';
                 let valB = b[this.sortKey] || '';
@@ -218,6 +263,12 @@ document.addEventListener('alpine:init', () => {
         sort(field) {
             if (this.sortKey === field) { this.sortAsc = !this.sortAsc; }
             else { this.sortKey = field; this.sortAsc = true; }
+        },
+
+        resetFilters() {
+            this.search = '';
+            this.filterGender = '';
+            this.filterAlive = '';
         }
     }));
 });

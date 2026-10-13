@@ -7,7 +7,6 @@ import json
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Count, Q
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404
@@ -101,25 +100,27 @@ class TreeDetailView(LoginRequiredMixin, DetailView):
         tree = self.object
         user = self.request.user
 
-        persons = tree.persons.all().prefetch_related("relationships_from", "relationships_to", "life_events")
-        context["persons"] = persons
-        context["persons_count"] = persons.count()
+        # Берем все персоны дерева (фильтрация будет мгновенной на фронтенде через Alpine.js)
+        persons_qs = tree.persons.all().prefetch_related("relationships_from", "relationships_to", "life_events")
 
-        # Генерация JSON для Alpine.js (табличный вид)
-        persons_data = []
-        for p in persons:
-            persons_data.append(
+        # Формируем список словарей для передачи в JSON
+        persons_list = []
+        for p in persons_qs.order_by("last_name", "first_name"):
+            persons_list.append(
                 {
                     "id": p.pk,
                     "full_name": p.full_name_display,
-                    "last_name": p.last_name or "",
                     "gender": p.get_gender_display(),
-                    "birth_date": p.birth_date.isoformat() if p.birth_date else "",
+                    "birth_date": p.birth_date.strftime("%d.%m.%Y") if p.birth_date else None,
                     "age": p.age,
                     "is_alive": p.is_alive,
+                    "last_name": p.last_name or "",
                 }
             )
-        context["persons_json"] = json.dumps(persons_data, cls=DjangoJSONEncoder)
+
+        context["persons_count"] = persons_qs.count()
+        # Передаем данные в шаблон как JSON-строку
+        context["persons_json"] = json.dumps(persons_list)
 
         collaborator = tree.collaborators.filter(user=user).first()
         if collaborator:
