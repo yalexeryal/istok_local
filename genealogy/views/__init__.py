@@ -2,7 +2,7 @@
 Views (обработчики запросов) приложения genealogy.
 """
 
-from .api_views import TreeAncestorsAPI, TreeHierarchyAPI
+from .api_views import TreeAncestorsAPI, TreeHierarchyAPI, UpcomingEventsAPI
 from .auth_views import RegisterView, WelcomeView
 from .event_views import (
     LifeEventCreateView,
@@ -37,29 +37,30 @@ from .tree_views import (
 )
 
 __all__ = [
-    "ImportConflictResolutionView",
-    "LifeEventCreateView",
-    "LifeEventDeleteView",
-    "LifeEventUpdateView",
-    "LinkRelativeView",
-    "PersonCreateView",
-    "PersonDeleteView",
-    "PersonDetailView",
-    "PersonPhotoDeleteView",
-    "PersonPhotoSetPrimaryView",
-    "PersonPhotoUploadView",
-    "PersonUpdateView",
-    "RegisterView",
-    "RelationshipCreateView",
-    "RelationshipDeleteView",
     "TreeAncestorsAPI",
+    "TreeHierarchyAPI",
+    "UpcomingEventsAPI",
+    "WelcomeView",
+    "RegisterView",
+    "TreeListView",
     "TreeCreateView",
     "TreeDetailView",
-    "TreeExportResultView",
-    "TreeExportView",
-    "TreeHierarchyAPI",
-    "TreeImportView",
-    "TreeListView",
-    "WelcomeView",
     "tree_data_api",
+    "PersonCreateView",
+    "PersonUpdateView",
+    "PersonDeleteView",
+    "PersonDetailView",
+    "LinkRelativeView",
+    "PersonPhotoUploadView",
+    "PersonPhotoDeleteView",
+    "PersonPhotoSetPrimaryView",
+    "RelationshipCreateView",
+    "RelationshipDeleteView",
+    "LifeEventCreateView",
+    "LifeEventUpdateView",
+    "LifeEventDeleteView",
+    "TreeExportView",
+    "TreeExportResultView",
+    "TreeImportView",
+    "ImportConflictResolutionView",
 ]

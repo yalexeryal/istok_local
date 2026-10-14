@@ -273,16 +273,123 @@ document.addEventListener('alpine:init', () => {
     }));
 });
 
-// === ФУНКЦИИ CYTOSCAPE ===
+// Функция склонения возраста
+function getAgeWord(age) {
+    const lastTwo = age % 100;
+    const lastOne = age % 10;
+
+    if (lastTwo >= 11 && lastTwo <= 14) {
+        return 'лет';
+    }
+
+    if (lastOne === 1) {
+        return 'год';
+    } else if (lastOne >= 2 && lastOne <= 4) {
+        return 'года';
+    } else {
+        return 'лет';
+    }
+}
+
+// Функция форматирования даты
+function formatDate(dateStr, isApprox) {
+    if (!dateStr || dateStr === "null" || dateStr === "") {
+        return "?";
+    }
+
+    const date = new Date(dateStr);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+
+    const prefix = isApprox ? '~' : '';
+    return `${prefix}${day}.${month}.${year}`;
+}
+
+// Функция вычисления возраста
+function calculateAge(birthDate, deathDate, isBirthApprox, isDeathApprox) {
+    if (!birthDate || birthDate === "null" || birthDate === "") {
+        return null;
+    }
+
+    const birth = new Date(birthDate);
+    const end = (deathDate && deathDate !== "null" && deathDate !== "")
+        ? new Date(deathDate)
+        : new Date();
+
+    let age = end.getFullYear() - birth.getFullYear();
+    const monthDiff = end.getMonth() - birth.getMonth();
+
+    if (monthDiff < 0 || (monthDiff === 0 && end.getDate() < birth.getDate())) {
+        age--;
+    }
+
+    return age;
+}
+
 function prepareElements(data) {
+    // Защита от пустых или некорректных данных
+    if (!data || !data.nodes) return [];
+
     const nodes = data.nodes.map(n => {
         const isDead = n.death_date && n.death_date !== "null" && n.death_date !== "";
+
+        // Строка 1: Фамилия (с девичьей, если есть)
+        let line1 = n.last_name || "";
+        if (n.maiden_name && n.maiden_name !== "null" && String(n.maiden_name).trim() !== "") {
+            line1 += ` (${n.maiden_name})`;
+        }
+
+        // Строка 2: Имя и Отчество
+        let line2 = [n.first_name, n.middle_name]
+            .filter(p => p && p !== "null" && String(p).trim() !== "")
+            .join(' ');
+
+        // Если имя и отчество не пришли из API, используем полное имя как запасной вариант
+        if (!line2) {
+            line2 = n.label || "Не указано";
+        }
+
+        // Строка 3: Даты и возраст
+        const birthFormatted = formatDate(n.birth_date, n.is_birth_date_approx);
+        const deathFormatted = isDead ? formatDate(n.death_date, n.is_death_date_approx) : "";
+        const age = calculateAge(n.birth_date, n.death_date, n.is_birth_date_approx, n.is_death_date_approx);
+
+        let line3 = "";
+        if (birthFormatted !== "?" || deathFormatted) {
+            line3 = birthFormatted;
+            if (deathFormatted) {
+                line3 += ` - ${deathFormatted}`;
+            }
+            if (age !== null) {
+                line3 += ` • ${age} ${getAgeWord(age)}`;
+            }
+        } else {
+            line3 = "?";
+        }
+
+        const fullLabel = `${line1}\n${line2}\n${line3}`;
+
         return {
-            data: { id: n.id, label: n.label + (isDead ? " (†)" : ""), gender: n.gender, death_date: n.death_date },
+            data: {
+                id: String(n.id),
+                label: fullLabel,
+                gender: n.gender || "unknown",
+                death_date: n.death_date
+            },
             classes: isDead ? 'dead' : ''
         };
     });
-    const edges = data.links.map((l, idx) => ({ data: { id: `e${idx}`, source: l.source, target: l.target, type: l.type } }));
+
+    const edges = (data.links || []).map((l, idx) => ({
+        data: {
+            id: `e${idx}`,
+            source: String(l.source),
+            target: String(l.target),
+            type: l.type
+        }
+    }));
+
     return [...nodes, ...edges];
 }
 
@@ -303,15 +410,40 @@ function renderGraph() {
         container: cyContainer,
         elements: prepareElements(currentData),
         style: [
-            { selector: 'node', style: { 'label': 'data(label)', 'text-wrap': 'wrap', 'text-max-width': '150px', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '12px', 'font-weight': 'bold', 'color': '#1f2937', 'background-color': '#dbeafe', 'border-width': 2, 'border-color': '#3b82f6', 'width': 160, 'height': 60, 'shape': 'round-rectangle', 'padding': '10px' } },
+            {
+                selector: 'node',
+                style: {
+                    'label': 'data(label)',
+                    'text-wrap': 'wrap',
+                    'text-max-width': '150px',
+                    'text-valign': 'center',
+                    'text-halign': 'center',
+                    'font-size': '11px',
+                    'font-weight': 'bold',
+                    'color': '#1f2937',
+                    'background-color': '#dbeafe',
+                    'border-width': 2,
+                    'border-color': '#3b82f6',
+                    'width': 160,
+                    'height': 100,
+                    'shape': 'round-rectangle',
+                    'padding': '10px'
+                    // Убрали 'text-max-height', так как это невалидное свойство Cytoscape
+                }
+            },
             { selector: 'node[gender = "male"]', style: { 'background-color': '#dbeafe', 'border-color': '#3b82f6' } },
             { selector: 'node[gender = "female"]', style: { 'background-color': '#fce7f3', 'border-color': '#ec4899' } },
             { selector: 'node[gender = "unknown"]', style: { 'background-color': '#f3f4f6', 'border-color': '#9ca3af' } },
-            { selector: 'node.dead', style: { 'background-color': '#e5e7eb', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.6 } },
+
+            // Умершие с приглушенными цветами пола и черной рамкой
+            { selector: 'node[gender = "male"].dead', style: { 'background-color': '#bfdbfe', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7 } },
+            { selector: 'node[gender = "female"].dead', style: { 'background-color': '#fbcfe8', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7 } },
+            { selector: 'node[gender = "unknown"].dead', style: { 'background-color': '#e5e7eb', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7 } },
+
             { selector: `node[id = "${currentCenterPersonId}"]`, style: { 'border-width': 4, 'border-color': '#eab308', 'background-color': '#fef9c3' } },
             { selector: 'edge[type = "spouse"]', style: { 'width': 3, 'line-color': '#a855f7', 'curve-style': 'straight', 'line-style': 'dashed' } },
             { selector: 'edge[type = "biological_parent"]', style: { 'width': 2, 'line-color': '#6b7280', 'target-arrow-color': '#6b7280', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 1.2 } },
-            { selector: 'edge', style: { 'width': 1.5, 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier' } },
+            { selector: 'edge', style: { 'width': 1.5, 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier' } }
         ],
         minZoom: 0.2, maxZoom: 3, wheelSensitivity: 0.5,
     });
@@ -327,7 +459,6 @@ function renderGraph() {
         showPersonSidebar(evt.target.id(), evt.target.data());
     });
 }
-
 // === ВЕЕРНАЯ ДИАГРАММА ПРЕДКОВ ===
 async function renderAncestorsFan() {
     const fanContainer = document.getElementById('ancestors-fan');
@@ -573,6 +704,59 @@ window.addEventListener('load', function() {
     });
 
     loadData();
+});
+</script>
+<!-- ВИДЖЕТ БЛИЖАЙШИХ СОБЫТИЙ -->
+<div id="upcoming-events-widget" class="fixed bottom-5 left-5 z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl border border-gray-200 p-4 max-w-xs">
+        <div class="flex items-center justify-between mb-3 border-b border-gray-100 pb-2">
+            <h3 class="text-sm font-bold text-gray-800">📅 Ближайшие события</h3>
+            <button onclick="document.getElementById('upcoming-events-widget').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+                ✕
+            </button>
+        </div>
+        <div id="events-list" class="space-y-3">
+            <!-- Сюда будут вставлены события через JS -->
+        </div>
+    </div>
+</div>
+
+<script>
+// Загрузка и отображение ближайших событий
+document.addEventListener('DOMContentLoaded', function() {
+    fetch(`/api/tree/{{ tree.pk }}/upcoming-events/`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.events && data.events.length > 0) {
+                const list = document.getElementById('events-list');
+                list.innerHTML = '';
+
+                data.events.forEach(event => {
+                    const word = getAgeWord(event.years); // Используем ту же функцию склонения
+
+                    const item = document.createElement('a');
+                    item.href = `/person/${event.person_id}/`;
+                    item.className = "flex items-start gap-3 p-2 rounded-md hover:bg-gray-50 transition cursor-pointer block no-underline";
+
+                    item.innerHTML = `
+                        <div class="text-2xl mt-0.5">${event.emoji}</div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm font-semibold text-gray-900 truncate">
+                                ${event.date} — ${event.years} ${word}
+                            </div>
+                            <div class="text-xs text-gray-600 truncate" title="${event.person_name}">
+                                ${event.person_name}
+                            </div>
+                        </div>
+                    `;
+                    list.appendChild(item);
+                });
+
+                // Показываем виджет
+                document.getElementById('upcoming-events-widget').classList.remove('hidden');
+            }
+        })
+        .catch(error => console.error('Ошибка загрузки событий:', error));
 });
 </script>
 {% endblock %}
