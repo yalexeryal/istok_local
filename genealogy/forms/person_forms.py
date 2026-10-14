@@ -85,13 +85,15 @@ class PersonForm(forms.ModelForm):
                 attrs={
                     "type": "date",
                     "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-                }
+                },
+                format="%Y-%m-%d",
             ),
             "death_date": forms.DateInput(
                 attrs={
                     "type": "date",
                     "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-                }
+                },
+                format="%Y-%m-%d",
             ),
             "birth_place": forms.TextInput(
                 attrs={
