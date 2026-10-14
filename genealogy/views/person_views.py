@@ -392,83 +392,110 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         person = self.object
-        user = self.request.user
+        tree = person.tree
 
-        context["tree"] = person.tree
+        # 1. ГЛАВНОЕ ФОТО
+        context["primary_photo"] = person.photos.filter(is_primary=True).first() or person.photos.first()
+
+        # 2. Базовые данные и права
+        context["tree"] = tree
         context["combined_timeline"] = person.get_combined_timeline()
-        context["can_edit"] = person.tree.user_can_edit(user)
+        context["can_edit"] = tree.user_can_edit(self.request.user)
 
-        collaborator = person.tree.collaborators.filter(user=user).first()
+        # 3. Роль пользователя
+        collaborator = tree.collaborators.filter(user=self.request.user).first()
         context["user_role"] = (
-            collaborator.get_role_display() if collaborator else ("Администратор" if user.is_superuser else "Гость")
+            collaborator.get_role_display()
+            if collaborator
+            else ("Администратор" if self.request.user.is_superuser else "Гость")
         )
 
-        parents = person.get_parents()
-        context["father"] = next((p for p in parents if p.gender == "male"), None)
-        context["mother"] = next((p for p in parents if p.gender == "female"), None)
-
         close_relatives = []
+        context["father"] = None
+        context["mother"] = None
 
-        for p in parents:
-            rel = Relationship.objects.filter(
-                from_person=p,
-                to_person=person,
-                relationship_type__in=[
-                    RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                    RelationshipTypeEnum.ADOPTIVE_PARENT,
-                    RelationshipTypeEnum.STEP_PARENT,
-                ],
-            ).first()
-            if rel:
+        # Мы используем уже предвыбранные (prefetched) связи.
+        # Это гарантирует, что мы работаем с реальными объектами Person, а не словарями.
+
+        # === 1. РОДИТЕЛИ (текущая персона - это 'to_person', родитель - 'from_person') ===
+        for rel in person.relationships_to.all():
+            if rel.relationship_type in [
+                RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                RelationshipTypeEnum.ADOPTIVE_PARENT,
+                RelationshipTypeEnum.STEP_PARENT,
+            ]:
+                parent = rel.from_person
+                if not parent:
+                    continue
+
+                gender = parent.gender
                 if rel.relationship_type == RelationshipTypeEnum.BIOLOGICAL_PARENT:
-                    rel_type = "Отец (Родной)" if p.gender == "male" else "Мать (Родная)"
+                    rel_type = "Отец (Родной)" if gender == "male" else "Мать (Родная)"
                 elif rel.relationship_type == RelationshipTypeEnum.ADOPTIVE_PARENT:
-                    rel_type = "Отец (Приемный)" if p.gender == "male" else "Мать (Приемная)"
+                    rel_type = "Отец (Приемный)" if gender == "male" else "Мать (Приемная)"
                 else:
-                    rel_type = "Отчим" if p.gender == "male" else "Мачеха"
-                close_relatives.append({"person": p, "relation": rel_type})
+                    rel_type = "Отчим" if gender == "male" else "Мачеха"
 
-        for sibling in person.get_siblings():
-            rel_type = "Брат" if sibling.gender == "male" else "Сестра"
-            close_relatives.append({"person": sibling, "relation": rel_type})
-
-        for c in person.get_children():
-            rel = Relationship.objects.filter(
-                from_person=person,
-                to_person=c,
-                relationship_type__in=[
-                    RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                    RelationshipTypeEnum.ADOPTIVE_PARENT,
-                    RelationshipTypeEnum.STEP_PARENT,
-                ],
-            ).first()
-            if rel:
-                if rel.relationship_type == RelationshipTypeEnum.BIOLOGICAL_PARENT:
-                    rel_type = "Сын (Родной)" if c.gender == "male" else "Дочь (Родная)"
-                elif rel.relationship_type == RelationshipTypeEnum.ADOPTIVE_PARENT:
-                    rel_type = "Сын (Приемный)" if c.gender == "male" else "Дочь (Приемная)"
+                close_relatives.append({"person": parent, "relation": rel_type})
+                if gender == "male":
+                    context["father"] = parent
                 else:
-                    rel_type = "Пасынок" if c.gender == "male" else "Падчерица"
-                close_relatives.append({"person": c, "relation": rel_type})
+                    context["mother"] = parent
 
-        for spouse_info in person.get_spouses():
-            partner = spouse_info["person"]
-            if spouse_info["type"] == RelationshipTypeEnum.SPOUSE:
-                rel_type = "Партнер (Официальный брак)"
-            elif spouse_info["type"] == RelationshipTypeEnum.EX_SPOUSE:
-                rel_type = "Бывший партнер"
-            else:
-                rel_type = "Жених/Невеста"
-            close_relatives.append({"person": partner, "relation": rel_type})
+        # === 2. ДЕТИ (текущая персона - это 'from_person', ребенок - 'to_person') ===
+        for rel in person.relationships_from.all():
+            if rel.relationship_type in [
+                RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                RelationshipTypeEnum.ADOPTIVE_PARENT,
+            ]:
+                child = rel.to_person
+                if not child:
+                    continue
+                gender = child.gender
+                rel_type = "Сын" if gender == "male" else "Дочь"
+                close_relatives.append({"person": child, "relation": rel_type})
 
-        for child in person.get_children():
-            for spouse_info in child.get_spouses():
-                partner = spouse_info["person"]
-                if spouse_info["type"] == RelationshipTypeEnum.SPOUSE:
-                    rel_type = "Зять" if partner.gender == "male" else "Невестка"
-                    close_relatives.append({"person": partner, "relation": rel_type})
+        # === 3. СУПРУГИ (могут быть и в from, и в to) ===
+        added_spouse_ids = set()  # Чтобы избежать дубликатов
+
+        for rel in person.relationships_from.all():
+            if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
+                spouse = rel.to_person
+                if spouse and spouse.pk not in added_spouse_ids:
+                    rel_type = "Жена" if spouse.gender == "female" else "Муж"
+                    close_relatives.append({"person": spouse, "relation": rel_type})
+                    added_spouse_ids.add(spouse.pk)
+
+        for rel in person.relationships_to.all():
+            if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
+                spouse = rel.from_person
+                if spouse and spouse.pk not in added_spouse_ids:
+                    rel_type = "Жена" if spouse.gender == "female" else "Муж"
+                    close_relatives.append({"person": spouse, "relation": rel_type})
+                    added_spouse_ids.add(spouse.pk)
+
+        # === 4. БРАТЬЯ И СЕСТРЫ (те, у кого есть общий родитель с текущей персоной) ===
+        sibling_ids = set()
+        for rel in person.relationships_to.all():
+            if rel.relationship_type in [
+                RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                RelationshipTypeEnum.ADOPTIVE_PARENT,
+            ]:
+                parent = rel.from_person
+                # Находим всех других детей этого же родителя
+                for child_rel in parent.relationships_from.all():
+                    if child_rel.relationship_type in [
+                        RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                        RelationshipTypeEnum.ADOPTIVE_PARENT,
+                    ]:
+                        sibling = child_rel.to_person
+                        if sibling and sibling.pk != person.pk and sibling.pk not in sibling_ids:
+                            sibling_ids.add(sibling.pk)
+                            rel_type = "Брат" if sibling.gender == "male" else "Сестра"
+                            close_relatives.append({"person": sibling, "relation": rel_type})
 
         context["close_relatives"] = close_relatives
+
         return context
 
 

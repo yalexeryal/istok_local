@@ -186,3 +186,38 @@ def tree_data_api(request, pk):
             "edges": edges,
         }
     )
+
+
+class TreeStatisticsView(LoginRequiredMixin, DetailView):
+    """Страница статистики дерева."""
+
+    model = Tree
+    template_name = "genealogy/tree_statistics.html"
+    context_object_name = "tree"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            from django.contrib.auth.views import redirect_to_login
+
+            return redirect_to_login(request.get_full_path())
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        tree = self.object
+
+        if not tree.user_can_view(self.request.user):
+            from django.http import HttpResponseForbidden
+
+            return HttpResponseForbidden("У вас нет прав для просмотра этого дерева")
+
+        # Безопасное определение роли (если метода get_user_role нет в модели)
+        if hasattr(tree, "get_user_role"):
+            context["user_role"] = tree.get_user_role(self.request.user)
+        else:
+            # Простая проверка: если пользователь совпадает с владельцем дерева
+            context["user_role"] = "Владелец" if getattr(tree, "owner", None) == self.request.user else "Участник"
+
+        # Центральная персона для фильтра "только кровные"
+        context["center_person"] = tree.persons.order_by("id").first()
+        return context

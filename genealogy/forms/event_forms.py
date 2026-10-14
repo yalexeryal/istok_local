@@ -32,13 +32,15 @@ class LifeEventForm(forms.ModelForm):
                 attrs={
                     "type": "date",
                     "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-                }
+                },
+                format="%Y-%m-%d",
             ),
             "end_date": forms.DateInput(
                 attrs={
                     "type": "date",
                     "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-                }
+                },
+                format="%Y-%m-%d",
             ),
             "is_date_approx": forms.CheckboxInput(
                 attrs={"class": "w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"}

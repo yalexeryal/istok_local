@@ -2,7 +2,8 @@
 API Views для приложения genealogy.
 """
 
-from collections import deque
+from collections import defaultdict, deque
+from datetime import date
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import models
@@ -11,7 +12,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views import View
 
-from genealogy.models import Person, Relationship, RelationshipTypeEnum, Tree
+from genealogy.models import GenderEnum, Person, Relationship, RelationshipTypeEnum, Tree
 
 
 class TreeHierarchyAPI(LoginRequiredMixin, View):
@@ -284,3 +285,223 @@ class UpcomingEventsAPI(LoginRequiredMixin, View):
             if next_date < today:
                 next_date = original_date.replace(year=today.year + 1, day=28)
             return next_date
+
+
+class TreeStatisticsAPI(LoginRequiredMixin, View):
+    """API для получения статистики дерева."""
+
+    def get(self, request, tree_pk):
+        tree = get_object_or_404(Tree, pk=tree_pk)
+        if not tree.user_can_view(request.user):
+            return JsonResponse({"error": "Access denied"}, status=403)
+
+        # Определяем область: только кровные родственники или всё дерево
+        # Определяем область: только кровные родственники или всё дерево
+        scope = request.GET.get("scope", "all")
+        if scope == "relatives":
+            center_id = request.GET.get("center_person")
+            if center_id:
+                person_ids = self._get_blood_relatives(tree, int(center_id))
+                persons = Person.objects.filter(pk__in=person_ids)
+            else:
+                # Исправление: если center_id не передан, берем все дерево
+                persons = tree.persons.all()
+                person_ids = set(persons.values_list("pk", flat=True))
+        else:
+            persons = tree.persons.all()
+            person_ids = set(persons.values_list("pk", flat=True))
+
+        today = date.today()
+        stats = {}
+
+        # === Базовая статистика ===
+        total = persons.count()
+        alive = persons.filter(death_date__isnull=True).count()
+        deceased = total - alive
+
+        # Средняя продолжительность жизни (умершие)
+        lifespans = []
+        for p in persons.filter(death_date__isnull=False, birth_date__isnull=False):
+            lifespan = p.death_date.year - p.birth_date.year
+            if (p.death_date.month, p.death_date.day) < (p.birth_date.month, p.birth_date.day):
+                lifespan -= 1
+            if lifespan >= 0:
+                lifespans.append(lifespan)
+
+        avg_lifespan = round(sum(lifespans) / len(lifespans), 1) if lifespans else None
+
+        # Средний возраст живых
+        ages = []
+        for p in persons.filter(death_date__isnull=True, birth_date__isnull=False):
+            age = today.year - p.birth_date.year
+            if (today.month, today.day) < (p.birth_date.month, p.birth_date.day):
+                age -= 1
+            if age >= 0:
+                ages.append(age)
+
+        avg_age = round(sum(ages) / len(ages), 1) if ages else None
+
+        stats["basic"] = {
+            "total": total,
+            "alive": alive,
+            "deceased": deceased,
+            "avg_lifespan": avg_lifespan,
+            "avg_age": avg_age,
+            "filtered_count": persons.count(),
+        }
+
+        # === Распределение по полу ===
+        gender_counts = {
+            "male": persons.filter(gender=GenderEnum.MALE).count(),
+            "female": persons.filter(gender=GenderEnum.FEMALE).count(),
+            "unknown": persons.filter(gender=GenderEnum.UNKNOWN).count(),
+        }
+        stats["gender"] = gender_counts
+
+        # === Возрастные группы (живые) ===
+        age_groups = {
+            "0-10": 0,
+            "11-20": 0,
+            "21-30": 0,
+            "31-40": 0,
+            "41-50": 0,
+            "51-60": 0,
+            "61-70": 0,
+            "71-80": 0,
+            "81-90": 0,
+            "90+": 0,
+        }
+        for age in ages:
+            if age <= 10:
+                age_groups["0-10"] += 1
+            elif age <= 20:
+                age_groups["11-20"] += 1
+            elif age <= 30:
+                age_groups["21-30"] += 1
+            elif age <= 40:
+                age_groups["31-40"] += 1
+            elif age <= 50:
+                age_groups["41-50"] += 1
+            elif age <= 60:
+                age_groups["51-60"] += 1
+            elif age <= 70:
+                age_groups["61-70"] += 1
+            elif age <= 80:
+                age_groups["71-80"] += 1
+            elif age <= 90:
+                age_groups["81-90"] += 1
+            else:
+                age_groups["90+"] += 1
+        stats["age_groups"] = age_groups
+
+        # === Десятилетия рождения ===
+        decades = defaultdict(int)
+        for p in persons.filter(birth_date__isnull=False):
+            decade = (p.birth_date.year // 10) * 10
+            decades[decade] += 1
+        sorted_decades = sorted(decades.items())
+        stats["birth_decades"] = {str(k): v for k, v in sorted_decades}
+
+        # === Топ-10 мест рождения ===
+        places = defaultdict(int)
+        for p in persons.filter(birth_place__isnull=False).exclude(birth_place=""):
+            # Берём только город/страну (первую часть до запятой)
+            place = p.birth_place.split(",")[0].strip()
+            if place:
+                places[place] += 1
+        top_places = sorted(places.items(), key=lambda x: -x[1])[:10]
+        stats["top_birth_places"] = [{"place": p, "count": c} for p, c in top_places]
+
+        # === Статистика браков ===
+        spouse_rels = Relationship.objects.filter(
+            from_person_id__in=person_ids,
+            to_person_id__in=person_ids,
+            relationship_type=RelationshipTypeEnum.SPOUSE,
+        )
+        marriage_count = spouse_rels.count()
+        marriage_durations = []
+        for rel in spouse_rels:
+            if rel.start_date:
+                end = rel.end_date or today
+                duration = (end - rel.start_date).days / 365.25
+                if duration >= 0:
+                    marriage_durations.append(duration)
+
+        stats["marriages"] = {
+            "count": marriage_count,
+            "avg_duration": round(sum(marriage_durations) / len(marriage_durations), 1) if marriage_durations else None,
+            "max_duration": round(max(marriage_durations), 1) if marriage_durations else None,
+            "min_duration": round(min(marriage_durations), 1) if marriage_durations else None,
+            "divorces": spouse_rels.filter(end_date__isnull=False).count(),
+        }
+
+        # === Статистика детей ===
+        children_counts = []
+        for p in persons:
+            children_count = Relationship.objects.filter(
+                from_person=p,
+                to_person_id__in=person_ids,
+                relationship_type__in=[
+                    RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                    RelationshipTypeEnum.ADOPTIVE_PARENT,
+                ],
+            ).count()
+            children_counts.append(children_count)
+
+        stats["children"] = {
+            "avg": round(sum(children_counts) / len(children_counts), 2) if children_counts else 0,
+            "max": max(children_counts) if children_counts else 0,
+            "min": min(children_counts) if children_counts else 0,
+        }
+
+        # Распределение по количеству детей
+        children_distribution = defaultdict(int)
+        for count in children_counts:
+            key = str(count) if count <= 5 else "6+"
+            children_distribution[key] += 1
+        stats["children_distribution"] = dict(children_distribution)
+
+        return JsonResponse(stats)
+
+    def _get_blood_relatives(self, tree, center_person_id):
+        """BFS от центральной персоны ТОЛЬКО по кровным связям (родители и дети)."""
+        try:
+            center = Person.objects.get(pk=center_person_id, tree=tree)
+        except Person.DoesNotExist:
+            return set(tree.persons.values_list("pk", flat=True))
+
+        visited = {center.pk}
+        queue = [center]
+
+        while queue:
+            current = queue.pop(0)
+
+            # 1. Ищем родителей текущей персоны (current - это ребенок)
+            parents = Relationship.objects.filter(
+                to_person=current,
+                relationship_type__in=[
+                    RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                    RelationshipTypeEnum.ADOPTIVE_PARENT,
+                ],
+            ).select_related("from_person")
+
+            for rel in parents:
+                if rel.from_person.pk not in visited:
+                    visited.add(rel.from_person.pk)
+                    queue.append(rel.from_person)
+
+            # 2. Ищем детей текущей персоны (current - это родитель)
+            children = Relationship.objects.filter(
+                from_person=current,
+                relationship_type__in=[
+                    RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                    RelationshipTypeEnum.ADOPTIVE_PARENT,
+                ],
+            ).select_related("to_person")
+
+            for rel in children:
+                if rel.to_person.pk not in visited:
+                    visited.add(rel.to_person.pk)
+                    queue.append(rel.to_person)
+
+        return visited

@@ -48,7 +48,6 @@ class PersonForm(forms.ModelForm):
             "death_place",
             "burial_place",
             "culture",
-            "photo",
             "notes",
         ]
         widgets = {
@@ -117,7 +116,6 @@ class PersonForm(forms.ModelForm):
                     "placeholder": "Русский",
                 }
             ),
-            "photo": forms.ClearableFileInput(attrs={"class": "w-full px-4 py-2 border border-gray-300 rounded-md"}),
             "notes": forms.Textarea(
                 attrs={
                     "class": "w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500",

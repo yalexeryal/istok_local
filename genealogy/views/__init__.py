@@ -2,7 +2,7 @@
 Views (обработчики запросов) приложения genealogy.
 """
 
-from .api_views import TreeAncestorsAPI, TreeHierarchyAPI, UpcomingEventsAPI
+from .api_views import TreeAncestorsAPI, TreeHierarchyAPI, TreeStatisticsAPI, UpcomingEventsAPI
 from .auth_views import RegisterView, WelcomeView
 from .event_views import (
     LifeEventCreateView,
@@ -33,6 +33,7 @@ from .tree_views import (
     TreeCreateView,
     TreeDetailView,
     TreeListView,
+    TreeStatisticsView,
     tree_data_api,
 )
 
@@ -60,6 +61,8 @@ __all__ = [
     "TreeHierarchyAPI",
     "TreeImportView",
     "TreeListView",
+    "TreeStatisticsAPI",
+    "TreeStatisticsView",
     "UpcomingEventsAPI",
     "WelcomeView",
     "tree_data_api",

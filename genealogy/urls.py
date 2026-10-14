@@ -37,6 +37,8 @@ urlpatterns = [
     path("api/tree/<int:tree_pk>/hierarchy/", views.TreeHierarchyAPI.as_view(), name="tree_hierarchy_api"),
     path("api/tree/<int:tree_pk>/ancestors/", views.TreeAncestorsAPI.as_view(), name="tree_ancestors_api"),
     path("api/tree/<int:tree_pk>/upcoming-events/", views.UpcomingEventsAPI.as_view(), name="api_upcoming_events"),
+    path("api/tree/<int:tree_pk>/statistics/", views.TreeStatisticsAPI.as_view(), name="api_tree_statistics"),
+    path("tree/<int:pk>/statistics/", views.TreeStatisticsView.as_view(), name="tree_statistics"),
     # === Экспорт/Импорт ===
     path("tree/<int:pk>/export/", views.TreeExportView.as_view(), name="tree_export"),
     path("tree/<int:pk>/export/result/<int:task_pk>/", views.TreeExportResultView.as_view(), name="tree_export_result"),
