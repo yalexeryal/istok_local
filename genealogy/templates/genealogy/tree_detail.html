@@ -55,6 +55,12 @@
                    class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition font-medium">
                     📊 Статистика
                 </a>
+
+                <a href="{% url 'genealogy:tree_audit_log' tree.pk %}"
+                   class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition font-medium">
+                    🔔 История
+                </a>
+
                 {% endif %}
                 <a href="{% url 'genealogy:tree_list' %}"
                    class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium">
@@ -288,7 +294,7 @@
             filterAlive: '',
             sortKey: 'last_name',
             sortAsc: true,
-            persons: {{ persons_json|safe }},
+            persons: {{persons_json | safe}},
 
         init()
         {

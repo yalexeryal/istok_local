@@ -4,6 +4,7 @@
 Этот модуль экспортирует все модели для удобства импорта.
 """
 
+from .audit import AuditLog
 from .enums import (
     ChangeRequestStatusEnum,
     CollaboratorRoleEnum,
@@ -25,6 +26,7 @@ from .tree import Tree, TreeCollaborator
 from .users import ChangeRequest, PrivacySettings, UserProfile
 
 __all__ = [
+    "AuditLog",
     "ChangeRequest",
     "ChangeRequestStatusEnum",
     "CollaboratorRoleEnum",

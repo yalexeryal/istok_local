@@ -182,7 +182,7 @@ class Person(models.Model):
     def get_combined_timeline(self):
         timeline = []
 
-        # 1. Собственные события (исключая BIRTH_OF_CHILD)
+        # 1. Собственные события (исключая BIRTH_OF_CHILD, так как добавим их отдельно)
         for event in self.life_events.exclude(event_type=EventTypeEnum.BIRTH_OF_CHILD):
             timeline.append(
                 {
@@ -197,20 +197,45 @@ class Person(models.Model):
                 }
             )
 
-        # 2. Браки и разводы из связей (только если нет соответствующего события LifeEvent)
+        # 2. Браки и разводы из связей
         for spouse_info in self.get_spouses():
             rel = spouse_info["relationship"]
             partner = spouse_info["person"]
 
-            # Проверяем, есть ли уже событие MARRIAGE/DIVORCE для этой пары
+            # Проверяем, есть ли уже событие MARRIAGE для этой пары
             existing_marriage_event = self.life_events.filter(
-                event_type__in=[EventTypeEnum.MARRIAGE, EventTypeEnum.DIVORCE], related_person=partner
+                event_type=EventTypeEnum.MARRIAGE, related_person=partner
             ).exists()
 
-            # Если событие уже есть — пропускаем связь, чтобы не было дублирования
+            # Проверяем, есть ли уже событие DIVORCE для этой пары
+            existing_divorce_event = self.life_events.filter(
+                event_type=EventTypeEnum.DIVORCE, related_person=partner
+            ).exists()
+
+            # Если есть событие MARRIAGE — пропускаем связь (покажем событие из LifeEvent)
             if existing_marriage_event:
+                # Но если связь завершена и нет события DIVORCE — добавим развод из связи
+                if rel.end_date is not None and not existing_divorce_event:
+                    timeline.append(
+                        {
+                            "date": rel.end_date,
+                            "title": f"Развод с {partner.full_name_display}",
+                            "description": "",
+                            "location": "",
+                            "type": "own",
+                            "related_person": partner,
+                            "event_obj": None,
+                            "has_date": rel.end_date is not None,
+                            "relationship_obj": rel,
+                        }
+                    )
                 continue
 
+            # Если есть событие DIVORCE — пропускаем связь (покажем событие из LifeEvent)
+            if existing_divorce_event:
+                continue
+
+            # Нет ни одного события — показываем связь как "Брак"
             if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
                 title = f"Брак с {partner.full_name_display}"
             elif rel.relationship_type == RelationshipTypeEnum.EX_SPOUSE:
@@ -232,18 +257,32 @@ class Person(models.Model):
                 }
             )
 
+            # Если связь завершена (развод), но нет события DIVORCE — добавляем его
+            if rel.end_date is not None and not existing_divorce_event:
+                timeline.append(
+                    {
+                        "date": rel.end_date,
+                        "title": f"Развод с {partner.full_name_display}",
+                        "description": "",
+                        "location": "",
+                        "type": "own",
+                        "related_person": partner,
+                        "event_obj": None,
+                        "has_date": rel.end_date is not None,
+                        "relationship_obj": rel,
+                    }
+                )
+
         # 3. Рождение детей
-        children_birth_dates = []
         for child in self.get_children():
             if child.birth_date:
-                children_birth_dates.append(child.birth_date)
                 timeline.append(
                     {
                         "date": child.birth_date,
                         "title": f"Рождение {'сына' if child.gender == 'male' else 'дочери'}: {child.full_name_display}",
                         "description": "",
                         "location": child.birth_place or "",
-                        "type": "relative",
+                        "type": "own",
                         "related_person": child,
                         "event_obj": None,
                         "has_date": True,
@@ -266,52 +305,26 @@ class Person(models.Model):
                     }
                 )
 
-        # 5. Смерть супругов
-        for spouse_info in self.get_spouses():
-            partner = spouse_info["person"]
-            if partner.death_date:
+        # 5. Рождение братьев и сестер
+        for sibling in self.get_siblings():
+            if sibling.birth_date:
                 timeline.append(
                     {
-                        "date": partner.death_date,
-                        "title": f"Смерть супруга: {partner.full_name_display}",
+                        "date": sibling.birth_date,
+                        "title": f"Рождение {'брата' if sibling.gender == 'male' else 'сестры'}: {sibling.full_name_display}",
                         "description": "",
-                        "location": partner.death_place or "",
+                        "location": sibling.birth_place or "",
                         "type": "relative",
-                        "related_person": partner,
+                        "related_person": sibling,
                         "event_obj": None,
                         "has_date": True,
                     }
                 )
 
-        # 6. Обработка событий без даты
-        earliest_child_birth = min(children_birth_dates) if children_birth_dates else None
+        # Сортировка хронологии по дате (сначала с датой, потом без)
+        timeline.sort(key=lambda x: (x["has_date"] is False, x["date"] or ""))
 
-        no_date_events = [item for item in timeline if not item["has_date"]]
-        dated_events = [item for item in timeline if item["has_date"]]
-
-        dated_events.sort(key=lambda x: x["date"])
-
-        marriages_no_date = [item for item in no_date_events if item.get("relationship_obj")]
-        other_no_date = [item for item in no_date_events if not item.get("relationship_obj")]
-
-        final_timeline = []
-
-        if earliest_child_birth:
-            for item in dated_events:
-                if item["date"] < earliest_child_birth:
-                    final_timeline.append(item)
-
-            final_timeline.extend(marriages_no_date)
-
-            for item in dated_events:
-                if item["date"] >= earliest_child_birth:
-                    final_timeline.append(item)
-        else:
-            final_timeline.extend(dated_events)
-
-        final_timeline.extend(other_no_date)
-
-        return final_timeline
+        return timeline
 
 
 class PersonPhoto(models.Model):

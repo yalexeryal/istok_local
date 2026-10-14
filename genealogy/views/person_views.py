@@ -181,6 +181,21 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
         response = super().form_valid(form)
         person = self.object
 
+        # === ЛОГИРОВАНИЕ: создание персоны ===
+        from genealogy.utils.audit import get_client_ip, log_action
+
+        log_action(
+            tree=self.tree,
+            user=self.request.user,
+            action="CREATE",
+            entity_type="PERSON",
+            entity_id=person.pk,
+            entity_name=person.full_name_display,
+            ip_address=get_client_ip(self.request),
+        )
+
+        # ... остальной код без изменений ...
+
         if self.parent1 and self.relation in ["son", "daughter", "adopted_son", "adopted_daughter"]:
             is_biological = self.relation in ["son", "daughter"]
             rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT if is_biological else RelationshipTypeEnum.ADOPTIVE_PARENT
@@ -332,6 +347,20 @@ class PersonUpdateView(LoginRequiredMixin, UpdateView):
             return self.render_to_response(context)
 
         response = super().form_valid(form)
+
+        # === ЛОГИРОВАНИЕ: редактирование персоны ===
+        from genealogy.utils.audit import get_client_ip, log_action
+
+        log_action(
+            tree=self.tree,
+            user=self.request.user,
+            action="UPDATE",
+            entity_type="PERSON",
+            entity_id=self.object.pk,
+            entity_name=self.object.full_name_display,
+            ip_address=get_client_ip(self.request),
+        )
+
         messages.success(self.request, f'Персона "{self.object.full_name_display}" успешно обновлена.')
         return response
 
@@ -361,6 +390,20 @@ class PersonDeleteView(LoginRequiredMixin, DeleteView):
 
     def delete(self, request, *args, **kwargs):
         self.object = self.get_object()
+
+        # === ЛОГИРОВАНИЕ: удаление персоны ===
+        from genealogy.utils.audit import get_client_ip, log_action
+
+        log_action(
+            tree=self.tree,
+            user=request.user,
+            action="DELETE",
+            entity_type="PERSON",
+            entity_id=self.object.pk,
+            entity_name=self.object.full_name_display,
+            ip_address=get_client_ip(request),
+        )
+
         response = super().delete(request, *args, **kwargs)
         messages.success(request, f'Персона "{self.object.full_name_display}" успешно удалена.')
         return response
@@ -462,7 +505,11 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
             if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
                 spouse = rel.to_person
                 if spouse and spouse.pk not in added_spouse_ids:
-                    rel_type = "Жена" if spouse.gender == "female" else "Муж"
+                    # Проверяем, есть ли дата окончания (развод)
+                    if rel.end_date:
+                        rel_type = "Бывшая жена" if spouse.gender == "female" else "Бывший муж"
+                    else:
+                        rel_type = "Жена" if spouse.gender == "female" else "Муж"
                     close_relatives.append({"person": spouse, "relation": rel_type})
                     added_spouse_ids.add(spouse.pk)
 
@@ -470,7 +517,11 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
             if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
                 spouse = rel.from_person
                 if spouse and spouse.pk not in added_spouse_ids:
-                    rel_type = "Жена" if spouse.gender == "female" else "Муж"
+                    # Проверяем, есть ли дата окончания (развод)
+                    if rel.end_date:
+                        rel_type = "Бывшая жена" if spouse.gender == "female" else "Бывший муж"
+                    else:
+                        rel_type = "Жена" if spouse.gender == "female" else "Муж"
                     close_relatives.append({"person": spouse, "relation": rel_type})
                     added_spouse_ids.add(spouse.pk)
 
@@ -625,6 +676,24 @@ class PersonPhotoUploadView(LoginRequiredMixin, View):
         # Создаём запись в галерее
 
         PersonPhoto.objects.create(person=person, image=image, caption=caption, is_primary=is_primary)
+        # Создаём запись в галерее
+        photo = PersonPhoto.objects.create(person=person, image=image, caption=caption, is_primary=is_primary)
+
+        # === ЛОГИРОВАНИЕ: загрузка фото ===
+        from genealogy.utils.audit import get_client_ip, log_action
+
+        log_action(
+            tree=person.tree,
+            user=request.user,
+            action="CREATE",
+            entity_type="PHOTO",
+            entity_id=photo.pk,
+            entity_name=f"Фото для {person.full_name_display}",
+            ip_address=get_client_ip(request),
+        )
+
+        messages.success(request, "Фотография успешно добавлена.")
+        return redirect("genealogy:person_detail", pk=person_pk)
         messages.success(request, "Фотография успешно добавлена.")
         return redirect("genealogy:person_detail", pk=person_pk)
 
@@ -652,6 +721,24 @@ class PersonPhotoDeleteView(LoginRequiredMixin, View):
         if photo.image:
             photo.image.delete(save=False)
 
+        # === ЛОГИРОВАНИЕ: удаление фото ===
+        from genealogy.utils.audit import get_client_ip, log_action
+
+        log_action(
+            tree=photo.person.tree,
+            user=request.user,
+            action="DELETE",
+            entity_type="PHOTO",
+            entity_id=photo.pk,
+            entity_name=f"Фото {photo.person.full_name_display}",
+            ip_address=get_client_ip(request),
+        )
+
+        # Удаляем файл с диска
+        if photo.image:
+            photo.image.delete(save=False)
+
+        photo.delete()
         photo.delete()
         messages.success(request, "Фотография удалена.")
         return redirect("genealogy:person_detail", pk=person_pk)

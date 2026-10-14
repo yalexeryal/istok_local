@@ -221,3 +221,67 @@ class TreeStatisticsView(LoginRequiredMixin, DetailView):
         # Центральная персона для фильтра "только кровные"
         context["center_person"] = tree.persons.order_by("id").first()
         return context
+
+
+class TreeAuditLogView(LoginRequiredMixin, DetailView):
+    """Страница истории изменений дерева."""
+
+    model = Tree
+    template_name = "genealogy/tree_audit_log.html"
+    context_object_name = "tree"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            from django.contrib.auth.views import redirect_to_login
+
+            return redirect_to_login(request.get_full_path())
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        from genealogy.models import AuditLog
+
+        context = super().get_context_data(**kwargs)
+        tree = self.object
+
+        if not tree.user_can_view(self.request.user):
+            from django.http import HttpResponseForbidden
+
+            return HttpResponseForbidden("У вас нет прав для просмотра этого дерева")
+
+        # Фильтры
+        action_filter = self.request.GET.get("action", "")
+        entity_type_filter = self.request.GET.get("entity_type", "")
+        user_filter = self.request.GET.get("user", "")
+
+        logs = AuditLog.objects.filter(tree=tree).select_related("user")
+
+        if action_filter:
+            logs = logs.filter(action=action_filter)
+        if entity_type_filter:
+            logs = logs.filter(entity_type=entity_type_filter)
+        if user_filter:
+            logs = logs.filter(user_id=user_filter)
+
+        context["logs"] = logs[:200]  # Ограничиваем 200 последними записями
+        context["total_count"] = AuditLog.objects.filter(tree=tree).count()
+        context["action_filter"] = action_filter
+        context["entity_type_filter"] = entity_type_filter
+        context["user_filter"] = user_filter
+
+        # Список пользователей для фильтра
+        context["users"] = (
+            AuditLog.objects.filter(tree=tree, user__isnull=False)
+            .values_list("user__id", "user__username")
+            .distinct()
+            .order_by("user__username")
+        )
+
+        # Роль пользователя
+        collaborator = tree.collaborators.filter(user=self.request.user).first()
+        context["user_role"] = (
+            collaborator.get_role_display()
+            if collaborator
+            else ("Администратор" if self.request.user.is_superuser else "Гость")
+        )
+
+        return context

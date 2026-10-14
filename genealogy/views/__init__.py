@@ -30,6 +30,7 @@ from .relationship_views import (
     RelationshipDeleteView,
 )
 from .tree_views import (
+    TreeAuditLogView,
     TreeCreateView,
     TreeDetailView,
     TreeListView,
@@ -54,6 +55,7 @@ __all__ = [
     "RelationshipCreateView",
     "RelationshipDeleteView",
     "TreeAncestorsAPI",
+    "TreeAuditLogView",
     "TreeCreateView",
     "TreeDetailView",
     "TreeExportResultView",
