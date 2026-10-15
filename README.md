@@ -96,22 +96,90 @@ python manage.py runserver
 
 ## 🗺️ Структура проекта
 ```
-istok/
-├── genealogy/              # Основное приложение
-│   ├── models/             # Модели данных
-│   │   ├── person.py       # Персоны и фото
-│   │   ├── relationships.py # Связи между людьми
-│   │   ├── events.py       # События жизни
-│   │   ├── tree.py         # Деревья и участники
-│   │   └── audit.py        # Лог действий
-│   ├── views/              # Обработчики запросов
-│   ├── forms/              # Формы
-│   ├── templates/          # HTML-шаблоны
-│   └── utils/              # Утилиты
-├── istok_local/            # Настройки проекта
-├── media/                  # Загруженные файлы
-├── docs/                   # Документация
-└── manage.py
+## 🗺️ Структура проекта
+
+```text
+istok_local/
+├── .gitignore
+├── .pre-commit-config.yaml       # Настройки pre-commit хуков
+├── pyproject.toml                # Зависимости и конфигурация проекта
+├── pytest.ini                    # Настройки тестирования
+├── manage.py                     # Точка входа Django
+│
+├── docs/                         # Документация
+│   ├── user_guide.md             # Руководство пользователя
+│   └── dev_guide.md              # Руководство разработчика
+│
+├── istok_local/                  # Конфигурация проекта Django
+│   ├── __init__.py
+│   ├── settings.py               # Основные настройки
+│   └── urls.py                   # Глобальные маршруты
+│
+└── genealogy/                    # Основное приложение
+    ├── __init__.py
+    ├── admin.py                  # Админ-панель Django
+    ├── apps.py                   # Конфигурация приложения
+    ├── signals.py                # Сигналы Django
+    ├── urls.py                   # Маршруты приложения
+    │
+    ├── models/                   # Модели данных (декомпозированы)
+    │   ├── __init__.py
+    │   ├── audit.py              # AuditLog (история изменений)
+    │   ├── enums.py              # Все перечисления (Enums)
+    │   ├── events.py             # LifeEvent (события жизни)
+    │   ├── export_import.py      # ExportTask, ImportTask
+    │   ├── person.py             # Person, PersonPhoto
+    │   ├── relationships.py      # Relationship (связи)
+    │   ├── tree.py               # Tree, TreeCollaborator
+    │   └── users.py              # UserProfile, PrivacySettings, ChangeRequest
+    │
+    ├── views/                    # Обработчики запросов
+    │   ├── __init__.py
+    │   ├── api_views.py          # REST API endpoints
+    │   ├── auth_views.py         # Аутентификация
+    │   ├── event_views.py        # CRUD событий жизни
+    │   ├── export_views.py       # Экспорт/импорт данных
+    │   ├── person_views.py       # CRUD персон и фото
+    │   ├── relationship_views.py # Управление связями
+    │   └── tree_views.py         # Деревья, статистика, поиск, история
+    │
+    ├── forms/                    # Django-формы
+    │   ├── __init__.py
+    │   ├── event_forms.py
+    │   ├── export_import_forms.py
+    │   ├── person_forms.py
+    │   ├── relationship_forms.py
+    │   └── tree_forms.py
+    │
+    ├── services/                 # Бизнес-логика (сервисный слой)
+    │   ├── __init__.py
+    │   ├── export_service.py
+    │   └── import_service.py
+    │
+    ├── utils/                    # Утилиты
+    │   ├── __init__.py
+    │   ├── audit.py              # Функции логирования действий
+    │   └── names.py              # Склонение фамилий, генерация отчеств
+    │
+    ├── templatetags/             # Кастомные теги шаблонов
+    │   ├── __init__.py
+    │   └── tree_tags.py
+    │
+    ├── templates/                # HTML-шаблоны
+    │   ├── base.html
+    │   ├── genealogy/            # Шаблоны приложения
+    │   └── registration/         # Шаблоны аутентификации
+    │
+    └── tests/                    # Модульные и интеграционные тесты
+        ├── __init__.py
+        ├── test_admin.py
+        ├── test_export_service.py
+        ├── test_forms.py
+        ├── test_import_service.py
+        ├── test_models.py
+        ├── test_names.py
+        ├── test_setup.py
+        └── test_views.py
 ```
 ## 🛠️ Технологии
 ```

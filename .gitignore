@@ -18,7 +18,9 @@ env/
 *.sqlite3
 db.sqlite3
 istok_local.db
-media/
+media/*
+!media/
+!media/.gitkeep
 staticfiles/
 
 # === IDE ===
