@@ -28,32 +28,91 @@
 
 ### Структура приложения `genealogy`
 ```
-genealogy/
-├── models/ # Модели данных
-│ ├── init.py # Экспорт всех моделей
-│ ├── person.py # Person, PersonPhoto
-│ ├── relationships.py # Relationship, RelationshipTypeEnum
-│ ├── events.py # LifeEvent, EventTypeEnum
-│ ├── tree.py # Tree, TreeCollaborator
-│ ├── audit.py # AuditLog
-│ ├── users.py # UserProfile, PrivacySettings
-│ ├── export_import.py # ExportTask, ImportTask
-│ └── enums.py # Все перечисления
-├── views/ # Обработчики запросов
-│ ├── person_views.py # CRUD персон, фото
-│ ├── tree_views.py # Деревья, статистика, поиск, история
-│ ├── event_views.py # События жизни
-│ └── api_views.py # REST API
-├── forms/ # Django-формы
-│ ├── person_forms.py
-│ ├── event_forms.py
-│ └── tree_forms.py
-├── templates/ # HTML-шаблоны
-│ └── genealogy/
-├── utils/ # Утилиты
-│ ├── audit.py # Логирование действий
-│ └── names.py # Склонение фамилий, отчества
-└── templatetags/ # Кастомные теги шаблонов
+text
+istok_local/
+├── pyproject.toml              # Зависимости (основные и dev)
+├── pytest.ini                  # Конфигурация pytest
+├── manage.py                   # CLI утилита Django
+├── media/                      # 📁 Загруженные файлы (фотографии, экспорт)
+├── static/                     # 📁 Статические файлы (CSS, JS, изображения)
+│
+├── docs/
+│   ├── user_guide.md           # Инструкции для конечных пользователей
+│   └── dev_guide.md            # Этот файл
+│
+├── istok_local/                # Настройки проекта
+│   ├── __init__.py
+│   ├── settings.py             # DEBUG, DATABASES, INSTALLED_APPS, MIDDLEWARE
+│   └── urls.py                 # Корневой роутинг (включает genealogy.urls)
+│
+└── genealogy/                  # Основное приложение
+    ├── __init__.py
+    ├── admin.py                # Регистрация моделей в Django Admin
+    ├── apps.py                 # Конфигурация приложения (GenealogyConfig)
+    ├── signals.py              # Сигналы (post_save, pre_delete и т.д.)
+    ├── urls.py                 # Маршруты приложения
+    │
+    ├── models/                 # 🗄️ Модели данных (декомпозированы)
+    │   ├── __init__.py         # Экспорт всех моделей для удобного импорта
+    │   ├── audit.py            # AuditLog (история изменений)
+    │   ├── enums.py            # Все перечисления (EventTypeEnum, RelationshipTypeEnum и др.)
+    │   ├── events.py           # LifeEvent (события жизни)
+    │   ├── export_import.py    # ExportTask, ImportTask (очереди задач)
+    │   ├── person.py           # Person, PersonPhoto
+    │   ├── relationships.py    # Relationship (связи между персонами)
+    │   ├── tree.py             # Tree, TreeCollaborator
+    │   └── users.py            # UserProfile, PrivacySettings, ChangeRequest
+    │
+    ├── views/                  # 🌐 Обработчики запросов
+    │   ├── __init__.py
+    │   ├── api_views.py        # REST API endpoints (JSON)
+    │   ├── auth_views.py       # Аутентификация и регистрация
+    │   ├── event_views.py      # CRUD событий жизни
+    │   ├── export_views.py     # Экспорт/импорт данных (CSV, JSON)
+    │   ├── person_views.py     # CRUD персон и управление фотографиями
+    │   ├── relationship_views.py # Управление связями
+    │   └── tree_views.py       # Деревья, статистика, поиск, история (Audit Log)
+    │
+    ├── forms/                  # 📝 Django-формы
+    │   ├── __init__.py
+    │   ├── event_forms.py      # LifeEventForm (включая логику "умного развода")
+    │   ├── export_import_forms.py
+    │   ├── person_forms.py     # PersonForm (с проверкой дубликатов)
+    │   ├── relationship_forms.py
+    │   └── tree_forms.py
+    │
+    ├── services/               # ⚙️ Бизнес-логика (Service Layer)
+    │   ├── __init__.py
+    │   ├── export_service.py   # Логика генерации файлов экспорта
+    │   └── import_service.py   # Логика парсинга и импорта данных
+    │
+    ├── utils/                  # 🛠️ Вспомогательные функции
+    │   ├── __init__.py
+    │   ├── audit.py            # log_action(), get_client_ip()
+    │   └── names.py            # Склонение фамилий, генерация отчеств
+    │
+    ├── templatetags/           # 🏷️ Кастомные теги шаблонов
+    │   ├── __init__.py
+    │   └── tree_tags.py
+    │
+    ├── templates/              # 🎨 HTML-шаблоны
+    │   ├── base.html           # Базовый шаблон с Tailwind CSS и Alpine.js
+    │   ├── genealogy/          # Шаблоны приложения (tree_detail.html, person_detail.html и др.)
+    │   └── registration/       # Шаблоны входа, регистрации, смены пароля
+    │
+    ├── migrations/             # 🔄 Миграции базы данных
+    │   └── ...                 # Автогенерируемые файлы миграций
+    │
+    └── tests/                  # 🧪 Тесты
+        ├── __init__.py
+        ├── test_admin.py       # Тесты админ-панели
+        ├── test_export_service.py
+        ├── test_forms.py       # Тесты валидации форм
+        ├── test_import_service.py
+        ├── test_models.py      # Тесты бизнес-логики моделей
+        ├── test_names.py       # Тесты утилит склонения имен
+        ├── test_setup.py       # Фикстуры и базовые настройки тестов
+        └── test_views.py       # Тесты HTTP-ответов и прав доступа
 ```
 
 ---

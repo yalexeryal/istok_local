@@ -125,9 +125,16 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# === MEDIA FILES (загруженные пользователями: фото, документы) ===
+# Медиафайлы (загруженные пользователями)
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = BASE_DIR / 'media'  # ← Папка в корне проекта
+
+# Статические файлы
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'  # ← Для продакшена
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',  # ← Папка в корне проекта
+]
 
 # === DEFAULT PRIMARY KEY ===
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
