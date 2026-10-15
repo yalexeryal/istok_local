@@ -50,6 +50,7 @@ urlpatterns = [
     path("person/<int:pk>/delete/", views.PersonDeleteView.as_view(), name="person_delete"),
     path("tree/<int:tree_pk>/link-relative/", views.LinkRelativeView.as_view(), name="link_relative"),
     path("tree/<int:pk>/audit-log/", views.TreeAuditLogView.as_view(), name="tree_audit_log"),
+    path("tree/<int:pk>/search/", views.TreeSearchView.as_view(), name="tree_search"),
     # === События жизни ===
     path("person/<int:person_pk>/event/add/", views.LifeEventCreateView.as_view(), name="life_event_create"),
     path("event/<int:pk>/edit/", views.LifeEventUpdateView.as_view(), name="life_event_update"),

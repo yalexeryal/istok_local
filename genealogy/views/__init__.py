@@ -34,6 +34,7 @@ from .tree_views import (
     TreeCreateView,
     TreeDetailView,
     TreeListView,
+    TreeSearchView,
     TreeStatisticsView,
     tree_data_api,
 )
@@ -63,6 +64,7 @@ __all__ = [
     "TreeHierarchyAPI",
     "TreeImportView",
     "TreeListView",
+    "TreeSearchView",
     "TreeStatisticsAPI",
     "TreeStatisticsView",
     "UpcomingEventsAPI",

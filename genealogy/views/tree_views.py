@@ -3,6 +3,7 @@ Views для работы с деревьями.
 """
 
 import json
+from contextlib import suppress
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -275,6 +276,131 @@ class TreeAuditLogView(LoginRequiredMixin, DetailView):
             .distinct()
             .order_by("user__username")
         )
+
+        # Роль пользователя
+        collaborator = tree.collaborators.filter(user=self.request.user).first()
+        context["user_role"] = (
+            collaborator.get_role_display()
+            if collaborator
+            else ("Администратор" if self.request.user.is_superuser else "Гость")
+        )
+
+        return context
+
+
+class TreeSearchView(LoginRequiredMixin, DetailView):
+    """Расширенный поиск персон в дереве."""
+
+    model = Tree
+    template_name = "genealogy/tree_search.html"
+    context_object_name = "tree"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            from django.contrib.auth.views import redirect_to_login
+
+            return redirect_to_login(request.get_full_path())
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        tree = self.object
+
+        if not tree.user_can_view(self.request.user):
+            from django.http import HttpResponseForbidden
+
+            return HttpResponseForbidden("У вас нет прав для просмотра этого дерева")
+
+        # Получаем параметры поиска и приводим к нижнему регистру
+        query = self.request.GET.get("q", "").strip()
+        gender = self.request.GET.get("gender", "")
+        alive_status = self.request.GET.get("alive_status", "")
+        birth_year_from = self.request.GET.get("birth_year_from", "")
+        birth_year_to = self.request.GET.get("birth_year_to", "")
+        death_year_from = self.request.GET.get("death_year_from", "")
+        death_year_to = self.request.GET.get("death_year_to", "")
+        birth_place = self.request.GET.get("birth_place", "").strip()
+        death_place = self.request.GET.get("death_place", "").strip()
+        culture = self.request.GET.get("culture", "").strip()
+
+        # Начинаем с базового queryset
+        persons = tree.persons.all()
+
+        # Применяем фильтры
+        # Для SQLite используем фильтрацию в Python для регистронезависимого поиска с кириллицей
+
+        if query:
+            query_lower = query.lower()
+            # Фильтруем в Python для корректной работы с кириллицей
+            matching_ids = []
+            for p in tree.persons.all():
+                if (
+                    query_lower in (p.first_name or "").lower()
+                    or query_lower in (p.middle_name or "").lower()
+                    or query_lower in (p.last_name or "").lower()
+                    or query_lower in (p.maiden_name or "").lower()
+                ):
+                    matching_ids.append(p.pk)
+            persons = persons.filter(pk__in=matching_ids)
+
+        if gender:
+            persons = persons.filter(gender=gender)
+
+        if alive_status == "alive":
+            persons = persons.filter(death_date__isnull=True)
+        elif alive_status == "deceased":
+            persons = persons.filter(death_date__isnull=False)
+
+        with suppress(ValueError):
+            if birth_year_from:
+                persons = persons.filter(birth_date__year__gte=int(birth_year_from))
+
+        with suppress(ValueError):
+            if birth_year_to:
+                persons = persons.filter(birth_date__year__lte=int(birth_year_to))
+
+        with suppress(ValueError):
+            if death_year_from:
+                persons = persons.filter(death_date__year__gte=int(death_year_from))
+
+        with suppress(ValueError):
+            if death_year_to:
+                persons = persons.filter(death_date__year__lte=int(death_year_to))
+
+        if birth_place:
+            birth_place_lower = birth_place.lower()
+            matching_ids = [p.pk for p in persons if birth_place_lower in (p.birth_place or "").lower()]
+            persons = persons.filter(pk__in=matching_ids)
+
+        if death_place:
+            death_place_lower = death_place.lower()
+            matching_ids = [p.pk for p in persons if death_place_lower in (p.death_place or "").lower()]
+            persons = persons.filter(pk__in=matching_ids)
+
+        if culture:
+            culture_lower = culture.lower()
+            matching_ids = [p.pk for p in persons if culture_lower in (p.culture or "").lower()]
+            persons = persons.filter(pk__in=matching_ids)
+
+        # Сортировка
+        persons = persons.order_by("last_name", "first_name", "middle_name")
+
+        # Передаём в контекст
+        context["persons"] = persons
+        context["results_count"] = persons.count()
+        context["total_count"] = tree.persons.count()
+
+        # Сохраняем параметры для формы
+        context["query"] = query
+        context["gender"] = gender
+        context["alive_status"] = alive_status
+        context["birth_year_from"] = birth_year_from
+        context["birth_year_to"] = birth_year_to
+        context["death_year_from"] = death_year_from
+        context["death_year_to"] = death_year_to
+        context["birth_place"] = birth_place
+        context["death_place"] = death_place
+        context["culture"] = culture
 
         # Роль пользователя
         collaborator = tree.collaborators.filter(user=self.request.user).first()

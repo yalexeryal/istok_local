@@ -44,7 +44,7 @@
 
 ```bash
 # 1. Клонировать репозиторий
-git clone <url-репозитория>
+git clone https://github.com/yalexeryal/istok_local.git
 cd istok_local
 
 # 2. Создать виртуальное окружение
@@ -60,6 +60,7 @@ source venv/bin/activate
 pip install -e ".[dev]"
 
 # 5. Применить миграции
+python manage.py makemigrations
 python manage.py migrate
 
 # 6. Создать суперпользователя

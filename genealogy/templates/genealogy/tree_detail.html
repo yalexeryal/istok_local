@@ -61,6 +61,11 @@
                     🔔 История
                 </a>
 
+                <a href="{% url 'genealogy:tree_search' tree.pk %}"
+                   class="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition font-medium">
+                    🔍 Поиск
+                </a>
+
                 {% endif %}
                 <a href="{% url 'genealogy:tree_list' %}"
                    class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium">
