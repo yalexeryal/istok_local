@@ -125,9 +125,22 @@
     </form>
 
     <!-- Результаты -->
-    {% if query or gender or alive_status or birth_year_from or birth_year_to or death_year_from or death_year_to or birth_place or death_place or culture %}
-        <div class="mb-4 text-sm text-gray-600">
-            Найдено: <strong class="text-gray-900">{{ results_count }}</strong> из <strong>{{ total_count }}</strong> персон
+    {    {% if query or gender or alive_status or birth_year_from or birth_year_to or death_year_from or death_year_to or birth_place or death_place or culture %}
+        <div class="mb-4 flex items-center justify-between flex-wrap gap-4">
+            <div class="text-sm text-gray-600">
+                Найдено: <strong class="text-gray-900">{{ results_count }}</strong> из <strong>{{ total_count }}</strong> персон
+            </div>
+
+            <!-- КНОПКА ЭКСПОРТА -->
+            {% if results_count > 0 %}
+                <a href="?export=csv&{{ request.GET.urlencode }}"
+                   class="inline-flex items-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 transition shadow-sm">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                    Экспорт в CSV
+                </a>
+            {% endif %}
         </div>
 
         {% if persons %}

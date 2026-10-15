@@ -2,15 +2,18 @@
 Views для работы с деревьями.
 """
 
+import csv
 import json
 from contextlib import suppress
+from urllib.parse import quote
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Q
-from django.http import HttpResponseForbidden, JsonResponse
+from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView
 
 from genealogy.models import (
@@ -302,33 +305,34 @@ class TreeSearchView(LoginRequiredMixin, DetailView):
             return redirect_to_login(request.get_full_path())
         return super().dispatch(request, *args, **kwargs)
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        tree = self.object
+    def _get_filtered_persons(self, tree, request):
+        """
+        Возвращает отфильтрованный queryset персон на основе параметров поиска.
 
-        if not tree.user_can_view(self.request.user):
-            from django.http import HttpResponseForbidden
+        Args:
+            tree: Дерево для поиска
+            request: HTTP запрос с параметрами фильтрации
 
-            return HttpResponseForbidden("У вас нет прав для просмотра этого дерева")
-
-        # Получаем параметры поиска и приводим к нижнему регистру
-        query = self.request.GET.get("q", "").strip()
-        gender = self.request.GET.get("gender", "")
-        alive_status = self.request.GET.get("alive_status", "")
-        birth_year_from = self.request.GET.get("birth_year_from", "")
-        birth_year_to = self.request.GET.get("birth_year_to", "")
-        death_year_from = self.request.GET.get("death_year_from", "")
-        death_year_to = self.request.GET.get("death_year_to", "")
-        birth_place = self.request.GET.get("birth_place", "").strip()
-        death_place = self.request.GET.get("death_place", "").strip()
-        culture = self.request.GET.get("culture", "").strip()
+        Returns:
+            QuerySet: Отфильтрованный и отсортированный queryset персон
+        """
+        # Получаем параметры поиска
+        query = request.GET.get("q", "").strip()
+        gender = request.GET.get("gender", "")
+        alive_status = request.GET.get("alive_status", "")
+        birth_year_from = request.GET.get("birth_year_from", "")
+        birth_year_to = request.GET.get("birth_year_to", "")
+        death_year_from = request.GET.get("death_year_from", "")
+        death_year_to = request.GET.get("death_year_to", "")
+        birth_place = request.GET.get("birth_place", "").strip()
+        death_place = request.GET.get("death_place", "").strip()
+        culture = request.GET.get("culture", "").strip()
 
         # Начинаем с базового queryset
         persons = tree.persons.all()
 
         # Применяем фильтры
         # Для SQLite используем фильтрацию в Python для регистронезависимого поиска с кириллицей
-
         if query:
             query_lower = query.lower()
             # Фильтруем в Python для корректной работы с кириллицей
@@ -383,7 +387,157 @@ class TreeSearchView(LoginRequiredMixin, DetailView):
             persons = persons.filter(pk__in=matching_ids)
 
         # Сортировка
-        persons = persons.order_by("last_name", "first_name", "middle_name")
+        return persons.order_by("last_name", "first_name", "middle_name")
+
+    def get(self, request, *args, **kwargs):
+        # Проверяем, запрошен ли экспорт в CSV
+        if request.GET.get("export") == "csv":
+            return self.export_to_csv(request)
+        return super().get(request, *args, **kwargs)
+
+    def export_to_csv(self, request):
+        tree = self.get_object()
+        if not tree.user_can_view(request.user):
+            return HttpResponseForbidden("У вас нет прав для просмотра этого дерева")
+
+        # Получаем отфильтрованных персон через общий метод
+        persons = self._get_filtered_persons(tree, request)
+
+        # Создаем умное имя файла на основе параметров поиска
+        search_parts = []
+
+        query = request.GET.get("q", "").strip()
+        gender = request.GET.get("gender", "")
+        alive_status = request.GET.get("alive_status", "")
+        birth_year_from = request.GET.get("birth_year_from", "")
+        birth_year_to = request.GET.get("birth_year_to", "")
+        death_year_from = request.GET.get("death_year_from", "")
+        death_year_to = request.GET.get("death_year_to", "")
+        birth_place = request.GET.get("birth_place", "").strip()
+        death_place = request.GET.get("death_place", "").strip()
+        culture = request.GET.get("culture", "").strip()
+
+        if query:
+            search_parts.append(query[:30])
+
+        if gender:
+            gender_display = {"male": "Мужчины", "female": "Женщины", "unknown": "Неизвестно"}.get(gender, gender)
+            search_parts.append(gender_display)
+
+        if alive_status:
+            status_display = {"alive": "Живые", "deceased": "Умершие"}.get(alive_status, alive_status)
+            search_parts.append(status_display)
+
+        if birth_year_from or birth_year_to:
+            year_range = f"{birth_year_from or '...'}-{birth_year_to or '...'}"
+            search_parts.append(f"Род.{year_range}")
+
+        if death_year_from or death_year_to:
+            year_range = f"{death_year_from or '...'}-{death_year_to or '...'}"
+            search_parts.append(f"Ум.{year_range}")
+
+        if birth_place:
+            search_parts.append(birth_place[:20])
+
+        if death_place:
+            search_parts.append(death_place[:20])
+
+        if culture:
+            search_parts.append(culture[:20])
+
+        # Если нет фильтров — используем имя дерева как основу
+        safe_tree_name = "".join(ch if ch.isalnum() else "_" for ch in tree.name).strip("_")[:30] or "tree"
+        date_str = timezone.now().strftime("%Y%m%d")
+
+        if not search_parts:
+            search_parts.append("Все_персоны")
+
+        # Собираем имя файла
+        search_description = "_".join(search_parts)
+
+        # Финальное имя файла (с ограничением длины)
+        filename = f"Поиск_{search_description}_{safe_tree_name}_{date_str}.csv"
+
+        # Убираем недопустимые символы до формирования заголовка
+        for char in '<>:"/\\|?*':
+            filename = filename.replace(char, "_")
+
+        # Оставляем запас под .csv, чтобы не отрезать расширение
+        filename = filename[:100]
+
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+
+        ascii_filename = f"search_export_{date_str}.csv"
+        encoded_filename = quote(filename, safe="")
+
+        response["Content-Disposition"] = (
+            f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{encoded_filename}"
+        )
+
+        # BOM (Byte Order Mark) для корректного отображения кириллицы в Excel
+        response.write("\ufeff")
+
+        writer = csv.writer(response)
+        # Заголовки столбцов
+        writer.writerow(
+            [
+                "Фамилия",
+                "Имя",
+                "Отчество",
+                "Девичья фамилия",
+                "Пол",
+                "Дата рождения",
+                "Место рождения",
+                "Дата смерти",
+                "Место смерти",
+                "Статус",
+                "Культура",
+            ]
+        )
+
+        # Данные
+        for p in persons:
+            writer.writerow(
+                [
+                    p.last_name or "",
+                    p.first_name or "",
+                    p.middle_name or "",
+                    p.maiden_name or "",
+                    p.get_gender_display(),
+                    p.birth_date.strftime("%d.%m.%Y") if p.birth_date else "",
+                    p.birth_place or "",
+                    p.death_date.strftime("%d.%m.%Y") if p.death_date else "",
+                    p.death_place or "",
+                    "Жив(а)" if p.is_alive else "Умер(ла)",
+                    p.culture or "",
+                ]
+            )
+
+        # Логируем действие в Audit Log
+        from genealogy.utils.audit import get_client_ip, log_action
+
+        log_action(
+            tree=tree,
+            user=request.user,
+            action="EXPORT",
+            entity_type="PERSON",
+            entity_name=f"Экспорт поиска ({persons.count()} записей)",
+            ip_address=get_client_ip(request),
+        )
+
+        return response
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        tree = self.object
+
+        if not tree.user_can_view(self.request.user):
+            from django.http import HttpResponseForbidden
+
+            return HttpResponseForbidden("У вас нет прав для просмотра этого дерева")
+
+        # Получаем отфильтрованных персон через общий метод
+        persons = self._get_filtered_persons(tree, self.request)
 
         # Передаём в контекст
         context["persons"] = persons
@@ -391,16 +545,16 @@ class TreeSearchView(LoginRequiredMixin, DetailView):
         context["total_count"] = tree.persons.count()
 
         # Сохраняем параметры для формы
-        context["query"] = query
-        context["gender"] = gender
-        context["alive_status"] = alive_status
-        context["birth_year_from"] = birth_year_from
-        context["birth_year_to"] = birth_year_to
-        context["death_year_from"] = death_year_from
-        context["death_year_to"] = death_year_to
-        context["birth_place"] = birth_place
-        context["death_place"] = death_place
-        context["culture"] = culture
+        context["query"] = self.request.GET.get("q", "").strip()
+        context["gender"] = self.request.GET.get("gender", "")
+        context["alive_status"] = self.request.GET.get("alive_status", "")
+        context["birth_year_from"] = self.request.GET.get("birth_year_from", "")
+        context["birth_year_to"] = self.request.GET.get("birth_year_to", "")
+        context["death_year_from"] = self.request.GET.get("death_year_from", "")
+        context["death_year_to"] = self.request.GET.get("death_year_to", "")
+        context["birth_place"] = self.request.GET.get("birth_place", "").strip()
+        context["death_place"] = self.request.GET.get("death_place", "").strip()
+        context["culture"] = self.request.GET.get("culture", "").strip()
 
         # Роль пользователя
         collaborator = tree.collaborators.filter(user=self.request.user).first()
