@@ -42,6 +42,21 @@ class RelationshipCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         response = super().form_valid(form)
+
+        # === ЛОГИРОВАНИЕ: создание связи ===
+        from genealogy.utils.audit import get_client_ip, log_action
+
+        log_action(
+            tree=self.tree,
+            user=self.request.user,
+            action="CREATE",
+            entity_type="RELATIONSHIP",
+            entity_id=self.object.pk,
+            entity_name=f"{self.object.from_person.full_name_display} → {self.object.to_person.full_name_display}",
+            details={"type": self.object.get_relationship_type_display()},
+            ip_address=get_client_ip(self.request),
+        )
+
         messages.success(
             self.request,
             f'Связь между "{self.object.from_person.full_name_display}" и '
@@ -73,13 +88,35 @@ class RelationshipDeleteView(LoginRequiredMixin, DeleteView):
         context["tree"] = self.tree
         return context
 
-    def delete(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         self.object = self.get_object()
-        response = super().delete(request, *args, **kwargs)
+
+        # Сохраняем данные ДО удаления
+        from_person_name = self.object.from_person.full_name_display
+        to_person_name = self.object.to_person.full_name_display
+        relationship_type = self.object.get_relationship_type_display()
+        relationship_pk = self.object.pk
+
+        # === ЛОГИРОВАНИЕ: удаление связи ===
+        from genealogy.utils.audit import get_client_ip, log_action
+
+        log_action(
+            tree=self.tree,
+            user=request.user,
+            action="DELETE",
+            entity_type="RELATIONSHIP",
+            entity_id=relationship_pk,
+            entity_name=f"{from_person_name} → {to_person_name}",
+            details={"type": relationship_type},
+            ip_address=get_client_ip(request),
+        )
+
+        # Вызываем стандартный метод удаления
+        response = super().post(request, *args, **kwargs)
+
         messages.success(
             request,
-            f'Связь между "{self.object.from_person.full_name_display}" и '
-            f'"{self.object.to_person.full_name_display}" успешно удалена.',
+            f'Связь между "{from_person_name}" и "{to_person_name}" успешно удалена.',
         )
         return response
 

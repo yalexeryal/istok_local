@@ -194,30 +194,54 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
             ip_address=get_client_ip(self.request),
         )
 
-        # ... остальной код без изменений ...
-
         if self.parent1 and self.relation in ["son", "daughter", "adopted_son", "adopted_daughter"]:
             is_biological = self.relation in ["son", "daughter"]
             rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT if is_biological else RelationshipTypeEnum.ADOPTIVE_PARENT
 
-            Relationship.objects.get_or_create(
+            rel, created = Relationship.objects.get_or_create(
                 from_person=self.parent1,
                 to_person=person,
                 relationship_type=rel_type,
                 defaults={"created_by": self.request.user},
             )
 
+            # === ЛОГИРОВАНИЕ: создание связи (ребенок) ===
+            if created:
+                log_action(
+                    tree=self.tree,
+                    user=self.request.user,
+                    action="CREATE",
+                    entity_type="RELATIONSHIP",
+                    entity_id=rel.pk,
+                    entity_name=f"{self.parent1.full_name_display} → {person.full_name_display}",
+                    details={"type": rel.get_relationship_type_display()},
+                    ip_address=get_client_ip(self.request),
+                )
+
             father = form.cleaned_data.get("father")
             mother = form.cleaned_data.get("mother")
 
             for parent in [father, mother]:
                 if parent and parent != self.parent1:
-                    Relationship.objects.get_or_create(
+                    rel, created = Relationship.objects.get_or_create(
                         from_person=parent,
                         to_person=person,
                         relationship_type=rel_type,
                         defaults={"created_by": self.request.user},
                     )
+
+                    # === ЛОГИРОВАНИЕ: создание связи (второй родитель) ===
+                    if created:
+                        log_action(
+                            tree=self.tree,
+                            user=self.request.user,
+                            action="CREATE",
+                            entity_type="RELATIONSHIP",
+                            entity_id=rel.pk,
+                            entity_name=f"{parent.full_name_display} → {person.full_name_display}",
+                            details={"type": rel.get_relationship_type_display()},
+                            ip_address=get_client_ip(self.request),
+                        )
 
             if person.birth_date:
                 all_parents = [self.parent1]
@@ -245,18 +269,25 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
             marriage_date = self.request.POST.get("marriage_date")
             marriage_place = self.request.POST.get("marriage_place")
 
-            Relationship.objects.get_or_create(
+            rel, created = Relationship.objects.get_or_create(
                 from_person=self.spouse_of,
                 to_person=person,
                 relationship_type=RelationshipTypeEnum.SPOUSE,
                 defaults={"created_by": self.request.user, "is_current": True, "start_date": marriage_date or None},
             )
 
-            # Создаём событие брака у обоих супругов.
-
-            # Если дата не указана — всё равно создаём событие (чтобы связь была видна),
-
-            # но без даты. Пользователь сможет добавить дату позже через редактирование.
+            # === ЛОГИРОВАНИЕ: создание связи (супруг) ===
+            if created:
+                log_action(
+                    tree=self.tree,
+                    user=self.request.user,
+                    action="CREATE",
+                    entity_type="RELATIONSHIP",
+                    entity_id=rel.pk,
+                    entity_name=f"{self.spouse_of.full_name_display} → {person.full_name_display}",
+                    details={"type": rel.get_relationship_type_display()},
+                    ip_address=get_client_ip(self.request),
+                )
 
             for spouse in [self.spouse_of, person]:
                 related = person if spouse == self.spouse_of else self.spouse_of
@@ -274,22 +305,51 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
                 )
 
             messages.success(self.request, f'Супруг(а) "{person.full_name_display}" успешно создан(а).')
+
         elif self.parent1 and self.relation in ["father", "mother"]:
-            Relationship.objects.get_or_create(
+            rel, created = Relationship.objects.get_or_create(
                 from_person=person,
                 to_person=self.parent1,
                 relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
                 defaults={"created_by": self.request.user},
             )
+
+            # === ЛОГИРОВАНИЕ: создание связи (родитель) ===
+            if created:
+                log_action(
+                    tree=self.tree,
+                    user=self.request.user,
+                    action="CREATE",
+                    entity_type="RELATIONSHIP",
+                    entity_id=rel.pk,
+                    entity_name=f"{person.full_name_display} → {self.parent1.full_name_display}",
+                    details={"type": rel.get_relationship_type_display()},
+                    ip_address=get_client_ip(self.request),
+                )
+
             messages.success(self.request, f'Родитель "{person.full_name_display}" успешно создан.')
 
         elif self.child:
-            Relationship.objects.get_or_create(
+            rel, created = Relationship.objects.get_or_create(
                 from_person=person,
                 to_person=self.child,
                 relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
                 defaults={"created_by": self.request.user},
             )
+
+            # === ЛОГИРОВАНИЕ: создание связи (родитель для ребенка) ===
+            if created:
+                log_action(
+                    tree=self.tree,
+                    user=self.request.user,
+                    action="CREATE",
+                    entity_type="RELATIONSHIP",
+                    entity_id=rel.pk,
+                    entity_name=f"{person.full_name_display} → {self.child.full_name_display}",
+                    details={"type": rel.get_relationship_type_display()},
+                    ip_address=get_client_ip(self.request),
+                )
+
             messages.success(self.request, f'Родитель "{person.full_name_display}" успешно создан.')
 
         else:
@@ -479,7 +539,7 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
                 else:
                     rel_type = "Отчим" if gender == "male" else "Мачеха"
 
-                close_relatives.append({"person": parent, "relation": rel_type})
+                close_relatives.append({"person": parent, "relation": rel_type, "rel_obj": rel})
                 if gender == "male":
                     context["father"] = parent
                 else:
@@ -496,7 +556,7 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
                     continue
                 gender = child.gender
                 rel_type = "Сын" if gender == "male" else "Дочь"
-                close_relatives.append({"person": child, "relation": rel_type})
+                close_relatives.append({"person": child, "relation": rel_type, "rel_obj": rel})
 
         # === 3. СУПРУГИ (могут быть и в from, и в to) ===
         added_spouse_ids = set()  # Чтобы избежать дубликатов
@@ -510,7 +570,7 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
                         rel_type = "Бывшая жена" if spouse.gender == "female" else "Бывший муж"
                     else:
                         rel_type = "Жена" if spouse.gender == "female" else "Муж"
-                    close_relatives.append({"person": spouse, "relation": rel_type})
+                    close_relatives.append({"person": spouse, "relation": rel_type, "rel_obj": rel})
                     added_spouse_ids.add(spouse.pk)
 
         for rel in person.relationships_to.all():
@@ -522,7 +582,7 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
                         rel_type = "Бывшая жена" if spouse.gender == "female" else "Бывший муж"
                     else:
                         rel_type = "Жена" if spouse.gender == "female" else "Муж"
-                    close_relatives.append({"person": spouse, "relation": rel_type})
+                    close_relatives.append({"person": spouse, "relation": rel_type, "rel_obj": rel})
                     added_spouse_ids.add(spouse.pk)
 
         # === 4. БРАТЬЯ И СЕСТРЫ (те, у кого есть общий родитель с текущей персоной) ===
@@ -594,6 +654,8 @@ class LinkRelativeView(LoginRequiredMixin, View):
         return render(request, "genealogy/link_relative.html", context)
 
     def post(self, request, *args, **kwargs):
+        from genealogy.utils.audit import get_client_ip, log_action
+
         selected_person_id = request.POST.get("selected_person")
 
         if not selected_person_id:
@@ -606,21 +668,47 @@ class LinkRelativeView(LoginRequiredMixin, View):
             is_biological = self.relation in ["son", "daughter"]
             rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT if is_biological else RelationshipTypeEnum.ADOPTIVE_PARENT
 
-            Relationship.objects.get_or_create(
+            rel, created = Relationship.objects.get_or_create(
                 from_person=self.parent1,
                 to_person=selected_person,
                 relationship_type=rel_type,
                 defaults={"created_by": request.user},
             )
 
+            # === ЛОГИРОВАНИЕ: создание связи ===
+            if created:
+                log_action(
+                    tree=self.tree,
+                    user=request.user,
+                    action="CREATE",
+                    entity_type="RELATIONSHIP",
+                    entity_id=rel.pk,
+                    entity_name=f"{self.parent1.full_name_display} → {selected_person.full_name_display}",
+                    details={"type": rel.get_relationship_type_display()},
+                    ip_address=get_client_ip(request),
+                )
+
             spouse = _get_current_spouse(self.parent1)
             if spouse:
-                Relationship.objects.get_or_create(
+                rel2, created2 = Relationship.objects.get_or_create(
                     from_person=spouse,
                     to_person=selected_person,
                     relationship_type=rel_type,
                     defaults={"created_by": request.user},
                 )
+
+                # === ЛОГИРОВАНИЕ: создание связи (супруг родителя) ===
+                if created2:
+                    log_action(
+                        tree=self.tree,
+                        user=request.user,
+                        action="CREATE",
+                        entity_type="RELATIONSHIP",
+                        entity_id=rel2.pk,
+                        entity_name=f"{spouse.full_name_display} → {selected_person.full_name_display}",
+                        details={"type": rel2.get_relationship_type_display()},
+                        ip_address=get_client_ip(request),
+                    )
 
             messages.success(
                 request,
@@ -628,24 +716,52 @@ class LinkRelativeView(LoginRequiredMixin, View):
             )
 
         elif self.relation in ["father", "mother"]:
-            Relationship.objects.get_or_create(
+            rel, created = Relationship.objects.get_or_create(
                 from_person=selected_person,
                 to_person=self.parent1,
                 relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
                 defaults={"created_by": request.user},
             )
+
+            # === ЛОГИРОВАНИЕ: создание связи ===
+            if created:
+                log_action(
+                    tree=self.tree,
+                    user=request.user,
+                    action="CREATE",
+                    entity_type="RELATIONSHIP",
+                    entity_id=rel.pk,
+                    entity_name=f"{selected_person.full_name_display} → {self.parent1.full_name_display}",
+                    details={"type": rel.get_relationship_type_display()},
+                    ip_address=get_client_ip(request),
+                )
+
             messages.success(
                 request,
                 f'Персона "{selected_person.full_name_display}" успешно добавлена как {RELATION_LABELS.get(self.relation, "родственник")}.',
             )
 
         elif self.relation == "spouse":
-            Relationship.objects.get_or_create(
+            rel, created = Relationship.objects.get_or_create(
                 from_person=self.parent1,
                 to_person=selected_person,
                 relationship_type=RelationshipTypeEnum.SPOUSE,
                 defaults={"created_by": request.user, "is_current": True},
             )
+
+            # === ЛОГИРОВАНИЕ: создание связи ===
+            if created:
+                log_action(
+                    tree=self.tree,
+                    user=request.user,
+                    action="CREATE",
+                    entity_type="RELATIONSHIP",
+                    entity_id=rel.pk,
+                    entity_name=f"{self.parent1.full_name_display} → {selected_person.full_name_display}",
+                    details={"type": rel.get_relationship_type_display()},
+                    ip_address=get_client_ip(request),
+                )
+
             messages.success(request, f'Персона "{selected_person.full_name_display}" успешно добавлена как супруг(а).')
 
         return redirect("genealogy:person_detail", pk=self.parent1.pk)

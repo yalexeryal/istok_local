@@ -121,20 +121,16 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-STATIC_URL = 'static/'
-STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
 
 # Медиафайлы (загруженные пользователями)
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'  # ← Папка в корне проекта
+MEDIA_ROOT = BASE_DIR / 'media'
 
-# Статические файлы
-STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'  # ← Для продакшена
-STATICFILES_DIRS = [
-    BASE_DIR / 'static',  # ← Папка в корне проекта
-]
 
 # === DEFAULT PRIMARY KEY ===
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
