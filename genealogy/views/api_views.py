@@ -7,6 +7,7 @@ from datetime import date
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import models
+from django.db.models import Count
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -288,23 +289,45 @@ class UpcomingEventsAPI(LoginRequiredMixin, View):
 
 
 class TreeStatisticsAPI(LoginRequiredMixin, View):
-    """API для получения статистики дерева."""
+    """API для получения статистики дерева с поддержкой фильтра 'только кровные'."""
 
     def get(self, request, tree_pk):
         tree = get_object_or_404(Tree, pk=tree_pk)
         if not tree.user_can_view(request.user):
             return JsonResponse({"error": "Access denied"}, status=403)
 
-        # Определяем область: только кровные родственники или всё дерево
-        # Определяем область: только кровные родственники или всё дерево
+        # Определяем область фильтрации
         scope = request.GET.get("scope", "all")
-        if scope == "relatives":
+
+        if scope in ["relatives", "blood_only"]:
             center_id = request.GET.get("center_person")
             if center_id:
-                person_ids = self._get_blood_relatives(tree, int(center_id))
-                persons = Person.objects.filter(pk__in=person_ids)
+                from genealogy.utils.kinship import get_kinship_network
+
+                try:
+                    center = Person.objects.get(pk=int(center_id), tree=tree)
+
+                    # Разные параметры для разных режимов
+                    if scope == "blood_only":
+                        person_ids = get_kinship_network(
+                            center_person=center,
+                            include_spouses=False,  # Только кровные
+                            include_adoptive=True,
+                            include_ex_spouses=False,
+                        )
+                    else:  # relatives
+                        person_ids = get_kinship_network(
+                            center_person=center,
+                            include_spouses=True,  # Кровные + супруги
+                            include_adoptive=True,
+                            include_ex_spouses=True,
+                        )
+
+                    persons = Person.objects.filter(pk__in=person_ids)
+                except Person.DoesNotExist:
+                    persons = tree.persons.all()
+                    person_ids = set(persons.values_list("pk", flat=True))
             else:
-                # Исправление: если center_id не передан, берем все дерево
                 persons = tree.persons.all()
                 person_ids = set(persons.values_list("pk", flat=True))
         else:
@@ -314,12 +337,11 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
         today = date.today()
         stats = {}
 
-        # === Базовая статистика ===
+        # === 2. БАЗОВАЯ СТАТИСТИКА ===
         total = persons.count()
         alive = persons.filter(death_date__isnull=True).count()
         deceased = total - alive
 
-        # Средняя продолжительность жизни (умершие)
         lifespans = []
         for p in persons.filter(death_date__isnull=False, birth_date__isnull=False):
             lifespan = p.death_date.year - p.birth_date.year
@@ -327,10 +349,8 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
                 lifespan -= 1
             if lifespan >= 0:
                 lifespans.append(lifespan)
-
         avg_lifespan = round(sum(lifespans) / len(lifespans), 1) if lifespans else None
 
-        # Средний возраст живых
         ages = []
         for p in persons.filter(death_date__isnull=True, birth_date__isnull=False):
             age = today.year - p.birth_date.year
@@ -338,7 +358,6 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
                 age -= 1
             if age >= 0:
                 ages.append(age)
-
         avg_age = round(sum(ages) / len(ages), 1) if ages else None
 
         stats["basic"] = {
@@ -347,18 +366,17 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
             "deceased": deceased,
             "avg_lifespan": avg_lifespan,
             "avg_age": avg_age,
-            "filtered_count": persons.count(),
+            "filtered_count": len(person_ids),
         }
 
-        # === Распределение по полу ===
-        gender_counts = {
+        # === 3. РАСПРЕДЕЛЕНИЕ ПО ПОЛУ ===
+        stats["gender"] = {
             "male": persons.filter(gender=GenderEnum.MALE).count(),
             "female": persons.filter(gender=GenderEnum.FEMALE).count(),
             "unknown": persons.filter(gender=GenderEnum.UNKNOWN).count(),
         }
-        stats["gender"] = gender_counts
 
-        # === Возрастные группы (живые) ===
+        # === 4. ВОЗРАСТНЫЕ ГРУППЫ (живые) ===
         age_groups = {
             "0-10": 0,
             "11-20": 0,
@@ -394,7 +412,7 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
                 age_groups["90+"] += 1
         stats["age_groups"] = age_groups
 
-        # === Десятилетия рождения ===
+        # === 5. ДЕСЯТИЛЕТИЯ РОЖДЕНИЯ ===
         decades = defaultdict(int)
         for p in persons.filter(birth_date__isnull=False):
             decade = (p.birth_date.year // 10) * 10
@@ -402,17 +420,16 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
         sorted_decades = sorted(decades.items())
         stats["birth_decades"] = {str(k): v for k, v in sorted_decades}
 
-        # === Топ-10 мест рождения ===
+        # === 6. ТОП-10 МЕСТ РОЖДЕНИЯ ===
         places = defaultdict(int)
         for p in persons.filter(birth_place__isnull=False).exclude(birth_place=""):
-            # Берём только город/страну (первую часть до запятой)
             place = p.birth_place.split(",")[0].strip()
             if place:
                 places[place] += 1
         top_places = sorted(places.items(), key=lambda x: -x[1])[:10]
         stats["top_birth_places"] = [{"place": p, "count": c} for p, c in top_places]
 
-        # === Статистика браков ===
+        # === 7. СТАТИСТИКА БРАКОВ ===
         spouse_rels = Relationship.objects.filter(
             from_person_id__in=person_ids,
             to_person_id__in=person_ids,
@@ -435,18 +452,22 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
             "divorces": spouse_rels.filter(end_date__isnull=False).count(),
         }
 
-        # === Статистика детей ===
-        children_counts = []
-        for p in persons:
-            children_count = Relationship.objects.filter(
-                from_person=p,
+        # === 8. СТАТИСТИКА ДЕТЕЙ (ОПТИМИЗИРОВАНО: 1 запрос вместо N) ===
+        children_counts_dict = defaultdict(int)
+        child_rels = (
+            Relationship.objects.filter(
+                from_person_id__in=person_ids,
                 to_person_id__in=person_ids,
-                relationship_type__in=[
-                    RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                    RelationshipTypeEnum.ADOPTIVE_PARENT,
-                ],
-            ).count()
-            children_counts.append(children_count)
+                relationship_type__in=[RelationshipTypeEnum.BIOLOGICAL_PARENT, RelationshipTypeEnum.ADOPTIVE_PARENT],
+            )
+            .values("from_person_id")
+            .annotate(count=Count("to_person_id"))
+        )
+
+        for item in child_rels:
+            children_counts_dict[item["from_person_id"]] = item["count"]
+
+        children_counts = [children_counts_dict.get(pid, 0) for pid in person_ids]
 
         stats["children"] = {
             "avg": round(sum(children_counts) / len(children_counts), 2) if children_counts else 0,
@@ -454,7 +475,6 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
             "min": min(children_counts) if children_counts else 0,
         }
 
-        # Распределение по количеству детей
         children_distribution = defaultdict(int)
         for count in children_counts:
             key = str(count) if count <= 5 else "6+"
@@ -464,44 +484,21 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
         return JsonResponse(stats)
 
     def _get_blood_relatives(self, tree, center_person_id):
-        """BFS от центральной персоны ТОЛЬКО по кровным связям (родители и дети)."""
+        """
+        Возвращает ID строго кровных родственников и их супругов.
+        Использует единый сервис kinship для консистентности.
+        """
+        from genealogy.utils.kinship import get_kinship_network
+
         try:
             center = Person.objects.get(pk=center_person_id, tree=tree)
         except Person.DoesNotExist:
             return set(tree.persons.values_list("pk", flat=True))
 
-        visited = {center.pk}
-        queue = [center]
-
-        while queue:
-            current = queue.pop(0)
-
-            # 1. Ищем родителей текущей персоны (current - это ребенок)
-            parents = Relationship.objects.filter(
-                to_person=current,
-                relationship_type__in=[
-                    RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                    RelationshipTypeEnum.ADOPTIVE_PARENT,
-                ],
-            ).select_related("from_person")
-
-            for rel in parents:
-                if rel.from_person.pk not in visited:
-                    visited.add(rel.from_person.pk)
-                    queue.append(rel.from_person)
-
-            # 2. Ищем детей текущей персоны (current - это родитель)
-            children = Relationship.objects.filter(
-                from_person=current,
-                relationship_type__in=[
-                    RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                    RelationshipTypeEnum.ADOPTIVE_PARENT,
-                ],
-            ).select_related("to_person")
-
-            for rel in children:
-                if rel.to_person.pk not in visited:
-                    visited.add(rel.to_person.pk)
-                    queue.append(rel.to_person)
-
-        return visited
+        # Вызываем единый сервис с параметрами по умолчанию
+        return get_kinship_network(
+            center_person=center,
+            include_spouses=True,  # Включаем зятьёв, невесток, жён/мужей
+            include_adoptive=True,  # Включаем приёмных как кровных
+            include_ex_spouses=True,  # Включаем бывших супругов
+        )

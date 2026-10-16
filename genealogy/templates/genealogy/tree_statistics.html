@@ -19,17 +19,26 @@
             </div>
         </div>
 
-        <!-- Переключатель области -->
+                <!-- Переключатель области -->
         <div class="flex gap-2 items-center flex-wrap">
             <span class="text-sm font-medium text-gray-700">Область:</span>
             <button id="btn-all" onclick="loadStats('all')"
                     class="px-4 py-2 bg-blue-600 text-white rounded-md font-medium transition">
-                Всё дерево
+                🌍 Всё дерево
             </button>
             <button id="btn-relatives" onclick="loadStats('relatives')"
                     class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium transition">
-                Только кровные родственники
+                👨‍👩‍👧‍👦 Кровные и их супруги
             </button>
+            <button id="btn-blood_only" onclick="loadStats('blood_only')"
+                    class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium transition">
+                🩸 Только кровные
+            </button>
+        </div>
+        <div class="mt-2 text-xs text-gray-500">
+            <span class="font-medium">🌍 Всё дерево:</span> Все персоны дерева.
+            <span class="font-medium">👨‍👩‍👧‍👦 Кровные и их супруги:</span> Кровные родственники + их текущие/бывшие супруги (без родни супругов).
+            <span class="font-medium">🩸 Только кровные:</span> Только биологические предки, потомки и боковые ветви (без супругов).
         </div>
     </div>
 
@@ -148,31 +157,38 @@
 </div>
 
 <!-- Chart.js -->
+<!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
 <script>
     let charts = {};
 
-        async function loadStats(scope) {
+    // Безопасная передача ID центральной персоны в JavaScript
+    // Если center_person существует, подставим его pk, иначе null
+    const centerPersonId = {% if center_person %}{{ center_person.pk }}{% else %}null{% endif %};
+
+    async function loadStats(scope) {
         // Обновляем кнопки
-        document.getElementById('btn-all').className = scope === 'all'
-            ? 'px-4 py-2 bg-blue-600 text-white rounded-md font-medium transition'
-            : 'px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium transition';
-        document.getElementById('btn-relatives').className = scope === 'relatives'
-            ? 'px-4 py-2 bg-blue-600 text-white rounded-md font-medium transition'
-            : 'px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium transition';
+        const buttons = ['all', 'relatives', 'blood_only'];
+        buttons.forEach(btn => {
+            const el = document.getElementById(`btn-${btn}`);
+            if (el) {
+                el.className = scope === btn
+                    ? 'px-4 py-2 bg-blue-600 text-white rounded-md font-medium transition'
+                    : 'px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium transition';
+            }
+        });
 
         // Показываем загрузку
         document.getElementById('loading').classList.remove('hidden');
         document.getElementById('stats-content').classList.add('hidden');
 
         try {
-            // Безопасная передача ID центральной персоны в JavaScript
-            const centerId = {{ center_person.pk|default:"null" }};
-
             let url = `/api/tree/{{ tree.pk }}/statistics/?scope=${scope}`;
-            if (scope === 'relatives' && centerId !== null) {
-                url += `&center_person=${centerId}`;
+
+            // Добавляем center_person только для режимов relatives и blood_only
+            if ((scope === 'relatives' || scope === 'blood_only') && centerPersonId) {
+                url += `&center_person=${centerPersonId}`;
             }
 
             console.log("🔍 Запрос статистики по URL:", url);
