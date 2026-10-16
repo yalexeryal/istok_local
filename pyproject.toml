@@ -12,6 +12,8 @@ readme = "README.md"
 dependencies = [
     "django>=5.1,<5.2",
     "pillow>=10.0",
+    "xhtml2pdf>=0.2.24",
+    "reportlab>=5.0.1",
 ]
 
 # Разработческие зависимости (нужны только для разработки)

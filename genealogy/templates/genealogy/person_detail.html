@@ -14,14 +14,18 @@
                     · Ваша роль: {{ user_role }}
                 </p>
             </div>
-            {% if can_edit %}
-            <div class="flex space-x-2 flex-wrap gap-2">
+                        <div class="flex space-x-2 flex-wrap gap-2">
+                <a href="{% url 'genealogy:person_pdf' person.pk %}"
+                   class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition font-medium flex items-center">
+                    📄 Скачать PDF
+                </a>
+                {% if can_edit %}
                 <a href="{% url 'genealogy:person_update' person.pk %}"
                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">Редактировать</a>
                 <a href="{% url 'genealogy:person_delete' person.pk %}"
                    class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition font-medium">Удалить</a>
+                {% endif %}
             </div>
-            {% endif %}
         </div>
     </div>
 

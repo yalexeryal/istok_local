@@ -48,6 +48,7 @@ urlpatterns = [
     path("person/<int:pk>/", views.PersonDetailView.as_view(), name="person_detail"),
     path("person/<int:pk>/edit/", views.PersonUpdateView.as_view(), name="person_update"),
     path("person/<int:pk>/delete/", views.PersonDeleteView.as_view(), name="person_delete"),
+    path("person/<int:pk>/pdf/", views.PersonPDFView.as_view(), name="person_pdf"),
     path("tree/<int:tree_pk>/link-relative/", views.LinkRelativeView.as_view(), name="link_relative"),
     path("tree/<int:pk>/audit-log/", views.TreeAuditLogView.as_view(), name="tree_audit_log"),
     path("tree/<int:pk>/search/", views.TreeSearchView.as_view(), name="tree_search"),

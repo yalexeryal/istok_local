@@ -2,6 +2,10 @@
 Views для работы с персонами.
 """
 
+import io
+import os
+
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import redirect_to_login
@@ -11,6 +15,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from xhtml2pdf import pisa
 
 from genealogy.forms import PersonForm
 from genealogy.models import (
@@ -789,10 +796,7 @@ class PersonPhotoUploadView(LoginRequiredMixin, View):
             person.photo = image
             person.save()
 
-        # Создаём запись в галерее
-
-        PersonPhoto.objects.create(person=person, image=image, caption=caption, is_primary=is_primary)
-        # Создаём запись в галерее
+        # Создаём запись в галерее (ОДИН РАЗ!)
         photo = PersonPhoto.objects.create(person=person, image=image, caption=caption, is_primary=is_primary)
 
         # === ЛОГИРОВАНИЕ: загрузка фото ===
@@ -808,8 +812,6 @@ class PersonPhotoUploadView(LoginRequiredMixin, View):
             ip_address=get_client_ip(request),
         )
 
-        messages.success(request, "Фотография успешно добавлена.")
-        return redirect("genealogy:person_detail", pk=person_pk)
         messages.success(request, "Фотография успешно добавлена.")
         return redirect("genealogy:person_detail", pk=person_pk)
 
@@ -833,10 +835,6 @@ class PersonPhotoDeleteView(LoginRequiredMixin, View):
             photo.person.photo = None
             photo.person.save()
 
-        # Удаляем файл с диска
-        if photo.image:
-            photo.image.delete(save=False)
-
         # === ЛОГИРОВАНИЕ: удаление фото ===
         from genealogy.utils.audit import get_client_ip, log_action
 
@@ -850,11 +848,10 @@ class PersonPhotoDeleteView(LoginRequiredMixin, View):
             ip_address=get_client_ip(request),
         )
 
-        # Удаляем файл с диска
+        # Удаляем файл с диска (ОДИН РАЗ!)
         if photo.image:
             photo.image.delete(save=False)
 
-        photo.delete()
         photo.delete()
         messages.success(request, "Фотография удалена.")
         return redirect("genealogy:person_detail", pk=person_pk)
@@ -885,3 +882,211 @@ class PersonPhotoSetPrimaryView(LoginRequiredMixin, View):
 
         messages.success(request, "Фотография установлена как главная.")
         return redirect("genealogy:person_detail", pk=photo.person.pk)
+
+
+class PersonPDFView(LoginRequiredMixin, DetailView):
+    """Генерация PDF-отчёта по персоне."""
+
+    model = Person
+    template_name = "genealogy/person_pdf.html"
+
+    def get(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+
+        self.object = self.get_object()
+        if not self.object.tree.user_can_view(request.user):
+            return HttpResponseForbidden("У вас нет доступа к этой персоне")
+
+        # === 1. РЕГИСТРАЦИЯ ШРИФТА ИЗ ПАПКИ ПРОЕКТА ===
+        # Формируем абсолютный путь к шрифту внутри проекта
+        font_path = os.path.join(settings.BASE_DIR, "genealogy", "fonts", "arial.ttf")
+
+        try:
+            # Регистрируем шрифт под именем 'ArialCyr'
+            pdfmetrics.registerFont(TTFont("ArialCyr", font_path))
+
+            # Регистрируем семейство шрифтов (требование reportlab)
+            pdfmetrics.registerFontFamily(
+                "ArialCyr", normal="ArialCyr", bold="ArialCyr", italic="ArialCyr", boldItalic="ArialCyr"
+            )
+
+            # 🔥 КЛЮЧЕВОЙ МОМЕНТ: Подменяем стандартные шрифты PDF на наш кириллический!
+            # Это гарантирует, что даже если xhtml2pdf проигнорирует CSS font-family,
+            # он всё равно будет использовать ArialCyr для рендеринга текста.
+            pdfmetrics.registerFontFamily(
+                "Helvetica", normal="ArialCyr", bold="ArialCyr", italic="ArialCyr", boldItalic="ArialCyr"
+            )
+            pdfmetrics.registerFontFamily(
+                "Times-Roman", normal="ArialCyr", bold="ArialCyr", italic="ArialCyr", boldItalic="ArialCyr"
+            )
+
+            print(f"✅ Шрифт загружен и стандартные шрифты PDF подменены: {font_path}")
+        except Exception as e:
+            print(f"❌ ОШИБКА: Не удалось загрузить шрифт. Проверьте, что файл лежит здесь: {font_path}")
+            print(f"Текст ошибки: {e}")
+        # =================================================
+
+        # Получаем контекст
+        context = self.get_context_data(object=self.object)
+
+        from django.utils import timezone
+
+        context["current_date"] = timezone.now()
+
+        # Обрабатываем фото для PDF (xhtml2pdf требует абсолютный путь)
+        primary_photo = context.get("primary_photo")
+        if primary_photo and primary_photo.image:
+            photo_path = os.path.join(settings.MEDIA_ROOT, primary_photo.image.name)
+            if os.path.exists(photo_path):
+                context["primary_photo_url"] = "file:///" + photo_path.replace("\\", "/")
+            else:
+                context["primary_photo_url"] = None
+        else:
+            context["primary_photo_url"] = None
+
+        # Рендерим HTML
+        from django.template.loader import render_to_string
+
+        html_string = render_to_string(self.template_name, context, request=request)
+
+        # Генерируем PDF
+
+        result_buffer = io.BytesIO()
+        pdf = pisa.CreatePDF(html_string, dest=result_buffer, encoding="utf-8")
+
+        if pdf.err:
+            messages.error(request, "Ошибка при генерации PDF")
+            return redirect("genealogy:person_detail", pk=self.object.pk)
+
+        # Логируем действие
+        from genealogy.utils.audit import get_client_ip, log_action
+
+        log_action(
+            tree=self.object.tree,
+            user=request.user,
+            action="EXPORT",
+            entity_type="PERSON",
+            entity_id=self.object.pk,
+            entity_name=f"PDF-отчёт: {self.object.full_name_display}",
+            ip_address=get_client_ip(request),
+        )
+
+        # Возвращаем PDF
+        from django.http import HttpResponse
+
+        response = HttpResponse(result_buffer.getvalue(), content_type="application/pdf")
+
+        safe_name = self.object.full_name_display.replace(" ", "_")[:50]
+        for char in '<>:"/\\|?*':
+            safe_name = safe_name.replace(char, "_")
+
+        filename = f"{safe_name}_{timezone.now().strftime('%Y%m%d')}.pdf"
+
+        from urllib.parse import quote
+
+        ascii_filename = f"person_{self.object.pk}_{timezone.now().strftime('%Y%m%d')}.pdf"
+        encoded_filename = quote(filename, safe="")
+
+        response["Content-Disposition"] = (
+            f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{encoded_filename}"
+        )
+
+        return response
+
+    def get_queryset(self):
+        return Person.objects.select_related("tree").prefetch_related(
+            "relationships_from", "relationships_to", "life_events", "photos"
+        )
+
+    def get_context_data(self, **kwargs):
+        # Переиспользуем логику из PersonDetailView
+        context = super().get_context_data(**kwargs)
+        person = self.object
+        tree = person.tree
+
+        context["primary_photo"] = person.photos.filter(is_primary=True).first() or person.photos.first()
+        context["tree"] = tree
+        context["combined_timeline"] = person.get_combined_timeline()
+        context["can_edit"] = tree.user_can_edit(self.request.user)
+
+        # Блок родственников (копируем из PersonDetailView)
+        close_relatives = []
+
+        # Родители
+        for rel in person.relationships_to.all():
+            if rel.relationship_type in [
+                RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                RelationshipTypeEnum.ADOPTIVE_PARENT,
+                RelationshipTypeEnum.STEP_PARENT,
+            ]:
+                parent = rel.from_person
+                if not parent:
+                    continue
+                gender = parent.gender
+                if rel.relationship_type == RelationshipTypeEnum.BIOLOGICAL_PARENT:
+                    rel_type = "Отец (Родной)" if gender == "male" else "Мать (Родная)"
+                elif rel.relationship_type == RelationshipTypeEnum.ADOPTIVE_PARENT:
+                    rel_type = "Отец (Приемный)" if gender == "male" else "Мать (Приемная)"
+                else:
+                    rel_type = "Отчим" if gender == "male" else "Мачеха"
+                close_relatives.append({"person": parent, "relation": rel_type})
+
+        # Дети
+        for rel in person.relationships_from.all():
+            if rel.relationship_type in [
+                RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                RelationshipTypeEnum.ADOPTIVE_PARENT,
+            ]:
+                child = rel.to_person
+                if not child:
+                    continue
+                gender = child.gender
+                rel_type = "Сын" if gender == "male" else "Дочь"
+                close_relatives.append({"person": child, "relation": rel_type})
+
+        # Супруги
+        added_spouse_ids = set()
+        for rel in person.relationships_from.all():
+            if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
+                spouse = rel.to_person
+                if spouse and spouse.pk not in added_spouse_ids:
+                    if rel.end_date:
+                        rel_type = "Бывшая жена" if spouse.gender == "female" else "Бывший муж"
+                    else:
+                        rel_type = "Жена" if spouse.gender == "female" else "Муж"
+                    close_relatives.append({"person": spouse, "relation": rel_type})
+                    added_spouse_ids.add(spouse.pk)
+
+        for rel in person.relationships_to.all():
+            if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
+                spouse = rel.from_person
+                if spouse and spouse.pk not in added_spouse_ids:
+                    if rel.end_date:
+                        rel_type = "Бывшая жена" if spouse.gender == "female" else "Бывший муж"
+                    else:
+                        rel_type = "Жена" if spouse.gender == "female" else "Муж"
+                    close_relatives.append({"person": spouse, "relation": rel_type})
+                    added_spouse_ids.add(spouse.pk)
+
+        # Братья и сёстры
+        sibling_ids = set()
+        for rel in person.relationships_to.all():
+            if rel.relationship_type in [
+                RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                RelationshipTypeEnum.ADOPTIVE_PARENT,
+            ]:
+                parent = rel.from_person
+                for child_rel in parent.relationships_from.all():
+                    if child_rel.relationship_type in [
+                        RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                        RelationshipTypeEnum.ADOPTIVE_PARENT,
+                    ]:
+                        sibling = child_rel.to_person
+                        if sibling and sibling.pk != person.pk and sibling.pk not in sibling_ids:
+                            sibling_ids.add(sibling.pk)
+                            rel_type = "Брат" if sibling.gender == "male" else "Сестра"
+                            close_relatives.append({"person": sibling, "relation": rel_type})
+
+        context["close_relatives"] = close_relatives
+        return context
