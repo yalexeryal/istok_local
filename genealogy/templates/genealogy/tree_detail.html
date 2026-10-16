@@ -74,43 +74,36 @@
             </div>
         </div>
 
-        <!-- Переключатель видов визуализации -->
-        <div class="flex gap-2 items-center flex-wrap">
-            <span class="text-sm font-medium text-gray-700">Вид:</span>
-            <button @click="switchView('hierarchy')"
-                    :class="view === 'hierarchy' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
-                    class="view-btn px-3 py-1.5 text-sm rounded-md font-medium transition">
-                🌳 Иерархическое дерево
-            </button>
-            <button @click="switchView('graph')"
-                    :class="view === 'graph' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
-                    class="view-btn px-3 py-1.5 text-sm rounded-md font-medium transition">
-                🕸️ Свободный граф
-            </button>
-            <button @click="switchView('ancestors')"
-                    :class="view === 'ancestors' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
-                    class="view-btn px-3 py-1.5 text-sm rounded-md font-medium transition">
-                🌻 Предки
-            </button>
-            <button @click="switchView('table')"
-                    :class="view === 'table' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
-                    class="view-btn px-3 py-1.5 text-sm rounded-md font-medium transition">
-                📋 Таблица
-            </button>
+                <!-- Панель управления: Вид и Связи -->
+        <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-end mb-4">
+            <!-- Выбор вида -->
+            <div class="flex flex-col">
+                <label class="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Вид отображения</label>
+                <select x-model="view"
+                        class="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[200px]">
+                    <option value="hierarchy">🌳 Иерархическое дерево</option>
+                    <option value="graph">🕸️ Свободный граф</option>
+                    <option value="ancestors">🌻 Предки (Веер)</option>
+                    <option value="table">📋 Таблица</option>
+                </select>
+            </div>
 
-            <div class="ml-auto flex gap-2" x-show="view === 'hierarchy' || view === 'graph'">
-                <button type="button" onclick="zoomInCy()"
-                        class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded transition font-medium min-w-[44px] min-h-[44px] flex items-center justify-center">
-                    🔍+
-                </button>
-                <button type="button" onclick="zoomOutCy()"
-                        class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded transition font-medium min-w-[44px] min-h-[44px] flex items-center justify-center">
-                    🔍−
-                </button>
-                <button type="button" onclick="fitCy()"
-                        class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded transition font-medium min-w-[44px] min-h-[44px] flex items-center justify-center">
-                    ⤢
-                </button>
+            <!-- Выбор области родства -->
+            <div class="flex flex-col">
+                <label class="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Область родства</label>
+                <select x-model="scope" @change="loadData()"
+                        class="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[220px]">
+                    <option value="all">🌍 Всё дерево</option>
+                    <option value="relatives">👨‍👩‍👧‍👦 Кровные и их супруги</option>
+                    <option value="blood_only">🩸 Только кровные</option>
+                </select>
+            </div>
+
+            <!-- Кнопки зума (только для графов) -->
+            <div class="flex gap-2 ml-auto" x-show="view === 'hierarchy' || view === 'graph'">
+                <button type="button" onclick="zoomInCy()" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded transition font-medium min-w-[44px] min-h-[44px] flex items-center justify-center">🔍+</button>
+                <button type="button" onclick="zoomOutCy()" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded transition font-medium min-w-[44px] min-h-[44px] flex items-center justify-center">🔍−</button>
+                <button type="button" onclick="fitCy()" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded transition font-medium min-w-[44px] min-h-[44px] flex items-center justify-center">⤢</button>
             </div>
         </div>
     </div>
@@ -290,80 +283,118 @@
     let currentCenterPersonId = null;
     let dagreAvailable = false;
 
-    // === ALPINE.JS ДЛЯ ТАБЛИЦЫ И УПРАВЛЕНИЯ ВИДОМ ===
+    // === ALPINE.JS ДЛЯ УПРАВЛЕНИЯ ВИДОМ, ФИЛЬТРАМИ И ТАБЛИЦЕЙ ===
     document.addEventListener('alpine:init', () => {
         Alpine.data('personTable', () => ({
             view: 'hierarchy',
+            scope: 'relatives', // Область родства по умолчанию
+            filteredPersonIds: new Set(), // ID персон для фильтрации таблицы
+
             search: '',
             filterGender: '',
             filterAlive: '',
             sortKey: 'last_name',
             sortAsc: true,
-            persons: {{persons_json | safe}},
+            persons: {{ persons_json | safe }},
 
-        init()
-        {
-            this.$watch('view', (newVal) => {
-                if ((newVal === 'hierarchy' || newVal === 'graph') && typeof window.renderGraph === 'function') {
-                    currentLayout = newVal;
+            init() {
+                // Следим за изменением вида отображения
+                this.$watch('view', (newVal) => {
+                    if ((newVal === 'hierarchy' || newVal === 'graph') && typeof window.renderGraph === 'function') {
+                        currentLayout = newVal;
+                        const loadingEl = document.getElementById('cy-loading');
+                        if (loadingEl) loadingEl.style.display = 'flex';
+                        window.renderGraph();
+                    } else if (newVal === 'ancestors' && typeof window.renderAncestorsFan === 'function') {
+                        window.renderAncestorsFan();
+                    }
+                });
+
+                // Загружаем данные при старте
+                this.loadData();
+            },
+
+            async loadData(centerPersonId = null) {
+                try {
                     const loadingEl = document.getElementById('cy-loading');
                     if (loadingEl) loadingEl.style.display = 'flex';
-                    window.renderGraph();
-                } else if (newVal === 'ancestors' && typeof window.renderAncestorsFan === 'function') {
-                    window.renderAncestorsFan();
+
+                    let url = `/api/tree/{{ tree.pk }}/hierarchy/?scope=${this.scope}`;
+                    if (centerPersonId) url += `&center_person=${centerPersonId}`;
+
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP ошибка: ${response.status}`);
+
+                    // ВАЖНО: записываем в глобальную переменную, которую ждет renderGraph
+                    currentData = await response.json();
+                    currentCenterPersonId = currentData.center_person;
+
+                    // Сохраняем ID отфильтрованных персон для таблицы
+                    this.filteredPersonIds = new Set(currentData.nodes.map(n => String(n.id)));
+
+                    if (!currentData.nodes || currentData.nodes.length === 0) {
+                        if (loadingEl) {
+                            loadingEl.innerHTML = `<div class="text-center text-gray-500"><div class="text-4xl mb-2">📭</div><p>Персоны не найдены</p></div>`;
+                        }
+                        return;
+                    }
+
+                    if (this.view === 'hierarchy' || this.view === 'graph') {
+                        window.renderGraph();
+                    }
+                } catch (error) {
+                    console.error("Ошибка загрузки:", error);
+                    const loadingEl = document.getElementById('cy-loading');
+                    if (loadingEl) {
+                        loadingEl.innerHTML = `<div class="text-center text-red-500"><div class="text-4xl mb-2">⚠️</div><p>Не удалось загрузить данные</p></div>`;
+                    }
                 }
-            });
-        }
-    ,
+            },
 
-        switchView(newView)
-        {
-            this.view = newView;
-        }
-    ,
+            get filteredPersons() {
+                // 1. Сначала фильтруем по выбранной области родства (из API)
+                let result = this.persons.filter(p => this.filteredPersonIds.has(String(p.id)));
 
-        get
-        filteredPersons()
-        {
-            let result = this.persons.filter(p => {
-                const matchesSearch = p.full_name.toLowerCase().includes(this.search.toLowerCase());
-                const matchesGender = this.filterGender === '' || p.gender === this.filterGender;
-                let matchesAlive = true;
-                if (this.filterAlive === 'alive') matchesAlive = p.is_alive === true;
-                else if (this.filterAlive === 'deceased') matchesAlive = p.is_alive === false;
-                return matchesSearch && matchesGender && matchesAlive;
-            });
+                // 2. Затем применяем поисковые фильтры пользователя
+                result = result.filter(p => {
+                    const matchesSearch = p.full_name.toLowerCase().includes(this.search.toLowerCase());
+                    const matchesGender = this.filterGender === '' || p.gender === this.filterGender;
+                    let matchesAlive = true;
+                    if (this.filterAlive === 'alive') matchesAlive = p.is_alive === true;
+                    else if (this.filterAlive === 'deceased') matchesAlive = p.is_alive === false;
+                    return matchesSearch && matchesGender && matchesAlive;
+                });
 
-            result.sort((a, b) => {
-                let valA = a[this.sortKey] || '';
-                let valB = b[this.sortKey] || '';
-                if (valA < valB) return this.sortAsc ? -1 : 1;
-                if (valA > valB) return this.sortAsc ? 1 : -1;
-                return 0;
-            });
-            return result;
-        }
-    ,
+                // 3. Сортировка
+                result.sort((a, b) => {
+                    let valA = a[this.sortKey] || '';
+                    let valB = b[this.sortKey] || '';
+                    if (valA < valB) return this.sortAsc ? -1 : 1;
+                    if (valA > valB) return this.sortAsc ? 1 : -1;
+                    return 0;
+                });
+                return result;
+            },
 
-        sort(field)
-        {
-            if (this.sortKey === field) {
-                this.sortAsc = !this.sortAsc;
-            } else {
-                this.sortKey = field;
-                this.sortAsc = true;
+            switchView(newView) {
+                this.view = newView;
+            },
+
+            sort(field) {
+                if (this.sortKey === field) {
+                    this.sortAsc = !this.sortAsc;
+                } else {
+                    this.sortKey = field;
+                    this.sortAsc = true;
+                }
+            },
+
+            resetFilters() {
+                this.search = '';
+                this.filterGender = '';
+                this.filterAlive = '';
             }
-        }
-    ,
-
-        resetFilters()
-        {
-            this.search = '';
-            this.filterGender = '';
-            this.filterAlive = '';
-        }
-    }))
-        ;
+        }));
     });
 
     // Функция склонения возраста
@@ -496,75 +527,19 @@
                     }
                 },
                 {selector: 'node[gender = "male"]', style: {'background-color': '#dbeafe', 'border-color': '#3b82f6'}},
-                {
-                    selector: 'node[gender = "female"]',
-                    style: {'background-color': '#fce7f3', 'border-color': '#ec4899'}
-                },
-                {
-                    selector: 'node[gender = "unknown"]',
-                    style: {'background-color': '#f3f4f6', 'border-color': '#9ca3af'}
-                },
-                {
-                    selector: 'node[gender = "male"].dead',
-                    style: {
-                        'background-color': '#bfdbfe',
-                        'border-color': '#000000',
-                        'border-width': 3,
-                        'text-opacity': 0.7
-                    }
-                },
-                {
-                    selector: 'node[gender = "female"].dead',
-                    style: {
-                        'background-color': '#fbcfe8',
-                        'border-color': '#000000',
-                        'border-width': 3,
-                        'text-opacity': 0.7
-                    }
-                },
-                {
-                    selector: 'node[gender = "unknown"].dead',
-                    style: {
-                        'background-color': '#e5e7eb',
-                        'border-color': '#000000',
-                        'border-width': 3,
-                        'text-opacity': 0.7
-                    }
-                },
-                {
-                    selector: `node[id = "${currentCenterPersonId}"]`,
-                    style: {'border-width': 4, 'border-color': '#eab308', 'background-color': '#fef9c3'}
-                },
-                {
-                    selector: 'edge[type = "spouse"]',
-                    style: {'width': 3, 'line-color': '#a855f7', 'curve-style': 'straight', 'line-style': 'dashed'}
-                },
-                {
-                    selector: 'edge[type = "biological_parent"]',
-                    style: {
-                        'width': 2,
-                        'line-color': '#6b7280',
-                        'target-arrow-color': '#6b7280',
-                        'target-arrow-shape': 'triangle',
-                        'curve-style': 'bezier',
-                        'arrow-scale': 1.2
-                    }
-                },
-                {
-                    selector: 'edge',
-                    style: {
-                        'width': 1.5,
-                        'line-color': '#9ca3af',
-                        'target-arrow-color': '#9ca3af',
-                        'target-arrow-shape': 'triangle',
-                        'curve-style': 'bezier'
-                    }
-                }
+                {selector: 'node[gender = "female"]', style: {'background-color': '#fce7f3', 'border-color': '#ec4899'}},
+                {selector: 'node[gender = "unknown"]', style: {'background-color': '#f3f4f6', 'border-color': '#9ca3af'}},
+                {selector: 'node[gender = "male"].dead', style: {'background-color': '#bfdbfe', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7}},
+                {selector: 'node[gender = "female"].dead', style: {'background-color': '#fbcfe8', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7}},
+                {selector: 'node[gender = "unknown"].dead', style: {'background-color': '#e5e7eb', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7}},
+                {selector: `node[id = "${currentCenterPersonId}"]`, style: {'border-width': 4, 'border-color': '#eab308', 'background-color': '#fef9c3'}},
+                {selector: 'edge[type = "spouse"]', style: {'width': 3, 'line-color': '#a855f7', 'curve-style': 'straight', 'line-style': 'dashed'}},
+                {selector: 'edge[type = "biological_parent"]', style: {'width': 2, 'line-color': '#6b7280', 'target-arrow-color': '#6b7280', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 1.2}},
+                {selector: 'edge', style: {'width': 1.5, 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier'}}
             ],
             minZoom: 0.2, maxZoom: 3, wheelSensitivity: 0.5
         });
 
-        // Явно сохраняем экземпляр в window, чтобы кнопки его видели
         window.cy = cy;
 
         const layout = cy.layout(layoutOptions);
@@ -628,20 +603,12 @@
                 pathElement.setAttribute('d', path);
 
                 let fillColor = '#dbeafe', strokeColor = '#3b82f6';
-                if (person.gender === 'female') {
-                    fillColor = '#fce7f3';
-                    strokeColor = '#ec4899';
-                } else if (person.gender === 'unknown') {
-                    fillColor = '#f3f4f6';
-                    strokeColor = '#9ca3af';
-                }
-                if (gen === 0) {
-                    fillColor = '#fef9c3';
-                    strokeColor = '#eab308';
-                }
+                if (person.gender === 'female') { fillColor = '#fce7f3'; strokeColor = '#ec4899'; }
+                else if (person.gender === 'unknown') { fillColor = '#f3f4f6'; strokeColor = '#9ca3af'; }
+
+                if (gen === 0) { fillColor = '#fef9c3'; strokeColor = '#eab308'; }
                 if (person.death_date && person.death_date !== "null" && person.death_date !== "") {
-                    fillColor = '#e5e7eb';
-                    strokeColor = '#000000';
+                    fillColor = '#e5e7eb'; strokeColor = '#000000';
                 }
 
                 pathElement.setAttribute('fill', fillColor);
@@ -743,33 +710,31 @@
         if (btnMakeCenter) {
             btnMakeCenter.addEventListener('click', function () {
                 sidebar.classList.add('translate-x-full');
-                loadingEl.style.display = 'flex';
-                loadingEl.innerHTML = `<div class="text-center"><div class="text-4xl mb-2 animate-spin">🌳</div><p class="text-gray-500">Перестроение дерева...</p></div>`;
-                loadData(personId);
+                if (loadingEl) {
+                    loadingEl.style.display = 'flex';
+                    loadingEl.innerHTML = `<div class="text-center"><div class="text-4xl mb-2 animate-spin">🌳</div><p class="text-gray-500">Перестроение дерева...</p></div>`;
+                }
+                // Вызываем loadData через Alpine компонент
+                const alpineComponent = document.querySelector('[x-data]').__x.$data;
+                alpineComponent.loadData(personId);
             });
         }
     }
 
-    async function loadData(centerPersonId = null) {
-        try {
-            const loadingEl = document.getElementById('cy-loading');
-            let url = `/api/tree/{{ tree.pk }}/hierarchy/`;
-            if (centerPersonId) url += `?center_person=${centerPersonId}`;
+    // === ФУНКЦИИ УПРАВЛЕНИЯ ГРАФОМ (Зум и масштаб) ===
+    function zoomInCy() {
+        if (window.cy) window.cy.zoom(window.cy.zoom() * 1.3);
+    }
 
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ошибка: ${response.status}`);
+    function zoomOutCy() {
+        if (window.cy) window.cy.zoom(window.cy.zoom() / 1.3);
+    }
 
-            currentData = await response.json();
-            currentCenterPersonId = currentData.center_person;
-
-            if (!currentData.nodes || currentData.nodes.length === 0) {
-                loadingEl.innerHTML = `<div class="text-center text-gray-500"><div class="text-4xl mb-2">📭</div><p>В дереве пока нет персон</p></div>`;
-                return;
-            }
-            renderGraph();
-        } catch (error) {
-            const loadingEl = document.getElementById('cy-loading');
-            loadingEl.innerHTML = `<div class="text-center text-red-500"><div class="text-4xl mb-2">⚠️</div><p>Не удалось загрузить данные</p></div>`;
+    function fitCy() {
+        if (window.cy) {
+            window.cy.resize();
+            window.cy.fit(window.cy.elements(), 50);
+            window.cy.center();
         }
     }
 
@@ -785,25 +750,49 @@
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && !sidebar.classList.contains('translate-x-full')) sidebar.classList.add('translate-x-full');
         });
-        loadData();
+        // loadData() теперь вызывается автоматически через Alpine init()
     });
+</script>
 
-    // === ФУНКЦИИ УПРАВЛЕНИЯ ГРАФОМ (Зум и масштаб) ===
-    function zoomInCy() {
-        if (window.cy) window.cy.zoom(window.cy.zoom() * 1.3);
-    }
+<!-- ВИДЖЕТ БЛИЖАЙШИХ СОБЫТИЙ -->
+<div id="upcoming-events-widget" class="fixed bottom-5 left-5 z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl border border-gray-200 p-4 max-w-xs">
+        <div class="flex items-center justify-between mb-3 border-b border-gray-100 pb-2">
+            <h3 class="text-sm font-bold text-gray-800">📅 Ближайшие события</h3>
+            <button onclick="document.getElementById('upcoming-events-widget').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">✕</button>
+        </div>
+        <div id="events-list" class="space-y-3"></div>
+    </div>
+</div>
 
-    function zoomOutCy() {
-        if (window.cy) window.cy.zoom(window.cy.zoom() / 1.3);
-    }
-
-    function fitCy() {
-        if (window.cy) {
-            window.cy.resize(); // 1. Принудительно пересчитываем размеры контейнера
-            window.cy.fit(window.cy.elements(), 50); // 2. Вписываем ВСЕ элементы с отступом 50px
-            window.cy.center(); // 3. Центрируем вид
-        }
-    }
+<script>
+    // Загрузка и отображение ближайших событий
+    document.addEventListener('DOMContentLoaded', function () {
+        fetch(`/api/tree/{{ tree.pk }}/upcoming-events/`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.events && data.events.length > 0) {
+                    const list = document.getElementById('events-list');
+                    list.innerHTML = '';
+                    data.events.forEach(event => {
+                        const word = getAgeWord(event.years);
+                        const item = document.createElement('a');
+                        item.href = `/person/${event.person_id}/`;
+                        item.className = "flex items-start gap-3 p-2 rounded-md hover:bg-gray-50 transition cursor-pointer block no-underline";
+                        item.innerHTML = `
+                            <div class="text-2xl mt-0.5">${event.emoji}</div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-sm font-semibold text-gray-900 truncate">${event.date} — ${event.years} ${word}</div>
+                                <div class="text-xs text-gray-600 truncate" title="${event.person_name}">${event.person_name}</div>
+                            </div>
+                        `;
+                        list.appendChild(item);
+                    });
+                    document.getElementById('upcoming-events-widget').classList.remove('hidden');
+                }
+            })
+            .catch(error => console.error('Ошибка загрузки событий:', error));
+    });
 </script>
 
 <!-- ВИДЖЕТ БЛИЖАЙШИХ СОБЫТИЙ -->

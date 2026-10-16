@@ -2,11 +2,10 @@
 API Views для приложения genealogy.
 """
 
-from collections import defaultdict, deque
+from collections import defaultdict
 from datetime import date
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db import models
 from django.db.models import Count
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
@@ -18,77 +17,89 @@ from genealogy.models import GenderEnum, Person, Relationship, RelationshipTypeE
 
 class TreeHierarchyAPI(LoginRequiredMixin, View):
     """
-    API для получения иерархии дерева вокруг центральной персоны.
+    API для получения данных дерева с поддержкой фильтрации по типу родства.
     """
 
     def get(self, request, tree_pk):
+        from genealogy.utils.kinship import get_kinship_network
+
         tree = get_object_or_404(Tree, pk=tree_pk)
         if not tree.user_can_view(request.user):
             return JsonResponse({"error": "Access denied"}, status=403)
 
+        scope = request.GET.get("scope", "relatives")
         center_person_id = request.GET.get("center_person")
+
         if center_person_id:
             center_person = get_object_or_404(Person, pk=center_person_id, tree=tree)
         else:
-            # По умолчанию центральная фигура — самая первая персона, созданная в дереве.
             center_person = tree.persons.order_by("id").first()
             if not center_person:
                 return JsonResponse({"center_person": None, "nodes": [], "links": []})
 
-        max_depth = 3
+        # 1. Определяем список ID персон в зависимости от выбранной области
+        if scope == "all":
+            person_ids = set(tree.persons.values_list("pk", flat=True))
+        else:
+            if scope == "blood_only":
+                person_ids = get_kinship_network(
+                    center_person, include_spouses=False, include_adoptive=True, include_ex_spouses=False
+                )
+            else:  # relatives (по умолчанию)
+                person_ids = get_kinship_network(
+                    center_person, include_spouses=True, include_adoptive=True, include_ex_spouses=True
+                )
 
-        visited_persons = set()
-        queue = deque([(center_person, 0)])
-        visited_persons.add(center_person.pk)
-
-        relevant_persons = {center_person.pk: center_person}
-
-        while queue:
-            current_person, current_depth = queue.popleft()
-
-            if current_depth >= max_depth:
-                continue
-
-            rels = Relationship.objects.filter(
-                models.Q(from_person=current_person) | models.Q(to_person=current_person)
-            ).select_related("from_person", "to_person")
-
-            for rel in rels:
-                partner = rel.to_person if rel.from_person == current_person else rel.from_person
-                if partner.pk not in visited_persons:
-                    visited_persons.add(partner.pk)
-                    relevant_persons[partner.pk] = partner
-                    queue.append((partner, current_depth + 1))
+        # 2. Формируем узлы (только отфильтрованные персоны)
+        persons_qs = Person.objects.filter(pk__in=person_ids).values(
+            "pk",
+            "first_name",
+            "middle_name",
+            "last_name",
+            "maiden_name",
+            "gender",
+            "birth_date",
+            "death_date",
+            "is_birth_date_approx",
+            "is_death_date_approx",
+            "photo",
+        )
 
         nodes = []
-        for p in relevant_persons.values():
+        for p in persons_qs:
+            full_name = f"{p['last_name'] or ''} {p['first_name'] or ''} {p['middle_name'] or ''}".strip()
+
+            photo_url = f"/media/{p['photo']}" if p["photo"] else None
+
             nodes.append(
                 {
-                    "id": str(p.pk),
-                    "label": p.full_name_display,
-                    "first_name": p.first_name,
-                    "middle_name": p.middle_name or "",
-                    "last_name": p.last_name or "",
-                    "maiden_name": p.maiden_name or "",
-                    "gender": p.gender,
-                    "birth_date": p.birth_date.isoformat() if p.birth_date else None,
-                    "death_date": p.death_date.isoformat() if p.death_date else None,
-                    "is_birth_date_approx": p.is_birth_date_approx,
-                    "is_death_date_approx": p.is_death_date_approx,
-                    "photo_url": p.photo.url if p.photo else None,
+                    "id": str(p["pk"]),
+                    "label": full_name or "Не указано",
+                    "first_name": p["first_name"],
+                    "middle_name": p["middle_name"] or "",
+                    "last_name": p["last_name"] or "",
+                    "maiden_name": p["maiden_name"] or "",
+                    "gender": p["gender"],
+                    "birth_date": p["birth_date"].isoformat() if p["birth_date"] else None,
+                    "death_date": p["death_date"].isoformat() if p["death_date"] else None,
+                    "is_birth_date_approx": p["is_birth_date_approx"],
+                    "is_death_date_approx": p["is_death_date_approx"],
+                    "photo_url": photo_url,
                 }
             )
 
+        # 3. Формируем связи (только между отфильтрованными персонами)
         links = []
-        rel_pks = [p.pk for p in relevant_persons.values()]
-        relationships = Relationship.objects.filter(from_person__in=rel_pks, to_person__in=rel_pks)
+        relationships = Relationship.objects.filter(from_person__in=person_ids, to_person__in=person_ids).values(
+            "from_person_id", "to_person_id", "relationship_type"
+        )
+
         for rel in relationships:
             links.append(
                 {
-                    "source": str(rel.from_person_id),
-                    "target": str(rel.to_person_id),
-                    "type": rel.relationship_type,
-                    "label": rel.get_relationship_type_display(),
+                    "source": str(rel["from_person_id"]),
+                    "target": str(rel["to_person_id"]),
+                    "type": rel["relationship_type"],
                 }
             )
 
