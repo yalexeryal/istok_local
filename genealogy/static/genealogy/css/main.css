@@ -1,0 +1,32 @@
+/* Мобильная адаптация для графа и элементов */
+@media (max-width: 768px) {
+    button, .view-btn, a.px-4 {
+        min-height: 44px;
+        padding-top: 0.75rem;
+        padding-bottom: 0.75rem;
+    }
+    #person-sidebar {
+        width: 100vw !important;
+    }
+    #upcoming-events-widget {
+        max-width: calc(100vw - 40px);
+        left: 20px;
+        right: 20px;
+    }
+}
+
+/* Стили для индикатора загрузки HTMX */
+.htmx-indicator {
+    opacity: 0;
+    transition: opacity 200ms ease-in;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    opacity: 1;
+}
+
+/* Скрытие элементов для Alpine.js до инициализации */
+[x-cloak] {
+    display: none !important;
+}
