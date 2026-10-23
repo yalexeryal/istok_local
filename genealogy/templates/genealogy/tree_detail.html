@@ -267,27 +267,25 @@
         </div>
     </div>
 
-    <!-- Легенда (только для графов) -->
-    <div x-show="view === 'hierarchy' || view === 'graph'" class="mt-4 flex gap-4 flex-wrap text-sm text-gray-600">
-        <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded bg-blue-100 border-2 border-blue-500"></div>
-            <span>Мужчина</span>
+        <!-- Легенда (только для графов) -->
+    <div x-show="view === 'hierarchy' || view === 'graph'" class="mt-4 flex gap-6 flex-wrap text-sm text-gray-600 border-t border-gray-200 pt-4">
+        <!-- Персоны -->
+        <div class="flex flex-col gap-2">
+            <span class="text-xs font-semibold text-gray-500 uppercase">Персоны</span>
+            <div class="flex items-center gap-2"><div class="w-4 h-4 rounded bg-blue-100 border-2 border-blue-500"></div><span>Мужчина</span></div>
+            <div class="flex items-center gap-2"><div class="w-4 h-4 rounded bg-pink-100 border-2 border-pink-500"></div><span>Женщина</span></div>
+            <div class="flex items-center gap-2"><div class="w-4 h-4 rounded bg-gray-100 border-2 border-gray-400"></div><span>Пол не указан</span></div>
+            <div class="flex items-center gap-2"><div class="w-4 h-4 rounded bg-yellow-50 border-2 border-yellow-500"></div><span>Центральная персона</span></div>
+            <div class="flex items-center gap-2"><div class="w-4 h-4 rounded bg-gray-200 border-2 border-black"></div><span>Умерший</span></div>
         </div>
-        <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded bg-pink-100 border-2 border-pink-500"></div>
-            <span>Женщина</span>
-        </div>
-        <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded bg-gray-100 border-2 border-gray-400"></div>
-            <span>Пол не указан</span>
-        </div>
-        <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded bg-yellow-50 border-2 border-yellow-500"></div>
-            <span>Центральная персона</span>
-        </div>
-        <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded bg-gray-200 border-2 border-black"></div>
-            <span>Умерший</span>
+
+        <!-- Связи -->
+        <div class="flex flex-col gap-2">
+            <span class="text-xs font-semibold text-gray-500 uppercase">Связи</span>
+            <div class="flex items-center gap-2"><div class="w-8 border-t-2 border-solid border-blue-500"></div><span>Биологический родитель</span></div>
+            <div class="flex items-center gap-2"><div class="w-8 border-t-2 border-dashed border-blue-500"></div><span>Приемный родитель</span></div>
+            <div class="flex items-center gap-2"><div class="w-8 border-t-2 border-solid border-purple-500"></div><span>Супруг(а)</span></div>
+            <div class="flex items-center gap-2"><div class="w-8 border-t-2 border-dotted border-gray-400"></div><span>Прочие связи</span></div>
         </div>
     </div>
 </div>
@@ -450,7 +448,7 @@
         return age;
     }
 
-    function prepareElements(data) {
+        function prepareElements(data) {
         if (!data || !data.nodes) return [];
         const nodes = data.nodes.map(n => {
             const isDead = n.death_date && n.death_date !== "null" && n.death_date !== "";
@@ -485,13 +483,31 @@
             };
         });
 
-        const edges = (data.links || []).map((l, idx) => ({
-            data: {id: `e${idx}`, source: String(l.source), target: String(l.target), type: l.type}
-        }));
+        const edges = (data.links || []).map((l, idx) => {
+            // Нормализуем тип связи для CSS-селекторов
+            const edgeType = (l.type || '').toLowerCase().replace(/-/g, '_').replace(/ /g, '_');
+
+            // 🌍 Словарь для перевода типов связей на русский язык для отображения на графе
+            let ruLabel = 'Связь'; // Значение по умолчанию
+            if (edgeType === 'biological_parent') ruLabel = 'Родитель';
+            else if (edgeType === 'adoptive_parent') ruLabel = 'Приемный род.';
+            else if (edgeType === 'spouse') ruLabel = 'Супруг(а)';
+            else if (edgeType === 'step_parent') ruLabel = 'Отчим/Мачеха';
+
+            return {
+                data: {
+                    id: `e${idx}`,
+                    source: String(l.source),
+                    target: String(l.target),
+                    type: edgeType,   // Оставляем для CSS-селекторов (цветов)
+                    label: ruLabel    // Добавляем русский текст для отображения на линии
+                }
+            };
+        });
         return [...nodes, ...edges];
     }
 
-    function renderGraph() {
+            function renderGraph() {
         if (!currentData) return;
         if (cy) cy.destroy();
 
@@ -527,6 +543,7 @@
             container: cyContainer,
             elements: prepareElements(currentData),
             style: [
+                // 1. Базовый стиль для всех узлов
                 {
                     selector: 'node',
                     style: {
@@ -547,18 +564,89 @@
                         'padding': '8px'
                     }
                 },
-                {selector: 'node[gender = "male"]', style: {'background-color': '#dbeafe', 'border-color': '#3b82f6'}},
-                {selector: 'node[gender = "female"]', style: {'background-color': '#fce7f3', 'border-color': '#ec4899'}},
-                {selector: 'node[gender = "unknown"]', style: {'background-color': '#f3f4f6', 'border-color': '#9ca3af'}},
-                {selector: 'node[gender = "male"].dead', style: {'background-color': '#bfdbfe', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7}},
-                {selector: 'node[gender = "female"].dead', style: {'background-color': '#fbcfe8', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7}},
-                {selector: 'node[gender = "unknown"].dead', style: {'background-color': '#e5e7eb', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7}},
-                {selector: `node[id = "${currentCenterPersonId}"]`, style: {'border-width': 4, 'border-color': '#eab308', 'background-color': '#fef9c3'}},
-                {selector: 'edge[type = "spouse"]', style: {'width': 3, 'line-color': '#a855f7', 'curve-style': 'straight', 'line-style': 'dashed'}},
-                {selector: 'edge[type = "biological_parent"]', style: {'width': 2, 'line-color': '#6b7280', 'target-arrow-color': '#6b7280', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 1.2}},
-                {selector: 'edge', style: {'width': 1.5, 'line-color': '#9ca3af', 'target-arrow-color': '#9ca3af', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier'}}
+                { selector: 'node[gender = "male"]', style: { 'background-color': '#dbeafe', 'border-color': '#3b82f6' } },
+                { selector: 'node[gender = "female"]', style: { 'background-color': '#fce7f3', 'border-color': '#ec4899' } },
+                { selector: 'node[gender = "unknown"]', style: { 'background-color': '#f3f4f6', 'border-color': '#9ca3af' } },
+                { selector: 'node[gender = "male"].dead', style: { 'background-color': '#bfdbfe', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7 } },
+                { selector: 'node[gender = "female"].dead', style: { 'background-color': '#fbcfe8', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7 } },
+                { selector: 'node[gender = "unknown"].dead', style: { 'background-color': '#e5e7eb', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7 } },
+                { selector: `node[id = "${currentCenterPersonId}"]`, style: { 'border-width': 4, 'border-color': '#eab308', 'background-color': '#fef9c3' } },
+
+                // === СТИЛИ СВЯЗЕЙ (РЕБЕР) ===
+
+                                // 1. Базовый стиль для ВСЕХ связей (серый, со стрелкой)
+                {
+                    selector: 'edge',
+                    style: {
+                        'width': 1.5,
+                        'line-color': '#9ca3af',
+                        'target-arrow-color': '#9ca3af',
+                        'target-arrow-shape': 'triangle',
+                        'curve-style': 'bezier',
+
+                        // 🔤 Настройки текстовой метки на линии
+                        'label': 'data(label)', // Берем русский текст из поля label
+                        'font-size': '10px',
+                        'font-weight': 'bold',
+                        'color': '#4b5563',
+                        'text-background-color': '#ffffff',
+                        'text-background-opacity': 0.9,
+                        'text-background-padding': '3px',
+                        'text-background-shape': 'roundrectangle',
+                        'text-margin-y': -8 // Чуть приподнимаем текст над линией
+                    }
+                },
+                // 2. Биологический родитель (Ярко-синий)
+                {
+                    selector: 'edge[type="biological_parent"]',
+                    style: {
+                        'width': 2.5,
+                        'line-color': '#3b82f6',
+                        'target-arrow-color': '#3b82f6',
+                        'target-arrow-shape': 'triangle',
+                        'curve-style': 'bezier'
+                    }
+                },
+                // 3. Приемный родитель (Синий пунктир)
+                {
+                    selector: 'edge[type="adoptive_parent"]',
+                    style: {
+                        'width': 2.5,
+                        'line-color': '#3b82f6',
+                        'line-style': 'dashed',
+                        'target-arrow-color': '#3b82f6',
+                        'target-arrow-shape': 'triangle',
+                        'curve-style': 'bezier'
+                    }
+                },
+                // 4. Супруг(а) (Фиолетовый без стрелки)
+                {
+                    selector: 'edge[type="spouse"]',
+                    style: {
+                        'width': 3,
+                        'line-color': '#a855f7',
+                        'line-style': 'solid',
+                        'target-arrow-shape': 'none',
+                        'source-arrow-shape': 'none',
+                        'curve-style': 'bezier'
+                    }
+                },
+                // 5. Мачеха/Отчим/Прочие (Серый пунктир)
+                {
+                    selector: 'edge[type="step_parent"]',
+                    style: {
+                        'width': 1.5,
+                        'line-color': '#9ca3af',
+                        'line-style': 'dotted',
+                        'target-arrow-color': '#9ca3af',
+                        'target-arrow-shape': 'triangle',
+                        'curve-style': 'bezier'
+                    }
+                }
             ],
-            minZoom: 0.2, maxZoom: 3, wheelSensitivity: 0.5
+            minZoom: 0.2,
+            maxZoom: 3,
+            wheelSensitivity: 0.5
         });
 
         window.cy = cy;
@@ -574,7 +662,6 @@
             showPersonSidebar(evt.target.id(), evt.target.data());
         });
     }
-
     async function renderAncestorsFan() {
         const fanContainer = document.getElementById('ancestors-fan');
         try {

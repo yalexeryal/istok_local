@@ -95,11 +95,14 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
         )
 
         for rel in relationships:
+            # Жестко нормализуем: нижний регистр + замена пробелов и дефисов на подчеркивания
+            rel_type = str(rel["relationship_type"]).lower().replace("-", "_").replace(" ", "_")
+
             links.append(
                 {
                     "source": str(rel["from_person_id"]),
                     "target": str(rel["to_person_id"]),
-                    "type": rel["relationship_type"],
+                    "type": rel_type,
                 }
             )
 
