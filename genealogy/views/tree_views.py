@@ -3,21 +3,30 @@ Views для работы с деревьями.
 """
 
 import csv
+import io
 import json
+import os
 from contextlib import suppress
 from urllib.parse import quote
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Q
 from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
+from django.template.loader import render_to_string
 from django.utils import timezone
+from django.views import View
 from django.views.generic import CreateView, DetailView, ListView
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from xhtml2pdf import pisa
 
 from genealogy.models import (
     CollaboratorRoleEnum,
+    Person,
     Tree,
     TreeCollaborator,
 )
@@ -565,3 +574,118 @@ class TreeSearchView(LoginRequiredMixin, DetailView):
         )
 
         return context
+
+
+class TreePDFExportView(LoginRequiredMixin, View):
+    """Экспорт дерева в PDF с выбором формата и фильтра родства."""
+
+    def get(self, request, tree_pk):
+        tree = get_object_or_404(Tree, pk=tree_pk)
+        if not tree.user_can_view(request.user):
+            return HttpResponseForbidden("У вас нет доступа к этому дереву")
+
+        export_format = request.GET.get("format", "table")  # table, generational, cards
+        scope = request.GET.get("scope", "relatives")  # all, relatives, blood_only
+        center_person_id = request.GET.get("center_person")
+
+        # 1. Фильтрация персон
+        if scope in ["relatives", "blood_only"]:
+            if center_person_id:
+                from genealogy.utils.kinship import get_kinship_network
+
+                try:
+                    center = Person.objects.get(pk=center_person_id, tree=tree)
+                    if scope == "blood_only":
+                        person_ids = get_kinship_network(center, include_spouses=False)
+                    else:
+                        person_ids = get_kinship_network(center, include_spouses=True)
+                except Person.DoesNotExist:
+                    person_ids = set(tree.persons.values_list("pk", flat=True))
+            else:
+                # АВТОМАТИЧЕСКИЙ ВЫБОР: берём первую персону дерева как центральную
+                center = tree.persons.order_by("id").first()
+                if center:
+                    from genealogy.utils.kinship import get_kinship_network
+
+                    if scope == "blood_only":
+                        person_ids = get_kinship_network(center, include_spouses=False)
+                    else:
+                        person_ids = get_kinship_network(center, include_spouses=True)
+                else:
+                    person_ids = set(tree.persons.values_list("pk", flat=True))
+        else:
+            person_ids = set(tree.persons.values_list("pk", flat=True))
+
+        # Сортируем по дате рождения для естественного поколенческого порядка
+        persons = Person.objects.filter(pk__in=person_ids).select_related("tree").order_by("birth_date")
+
+        # 2. Регистрация шрифта (как в PersonPDFView)
+
+        font_path = os.path.join(settings.BASE_DIR, "genealogy", "fonts", "arial.ttf")
+        try:
+            pdfmetrics.registerFont(TTFont("ArialCyr", font_path))
+            pdfmetrics.registerFontFamily(
+                "ArialCyr", normal="ArialCyr", bold="ArialCyr", italic="ArialCyr", boldItalic="ArialCyr"
+            )
+            pdfmetrics.registerFontFamily(
+                "Helvetica", normal="ArialCyr", bold="ArialCyr", italic="ArialCyr", boldItalic="ArialCyr"
+            )
+            pdfmetrics.registerFontFamily(
+                "Times-Roman", normal="ArialCyr", bold="ArialCyr", italic="ArialCyr", boldItalic="ArialCyr"
+            )
+        except Exception:
+            pass
+
+        # 3. Подготовка данных с фото для шаблона
+        persons_data = []
+        for p in persons:
+            primary_photo = p.photos.filter(is_primary=True).first() or p.photos.first()
+            photo_url = None
+            if primary_photo and primary_photo.image:
+                photo_path = os.path.join(settings.MEDIA_ROOT, primary_photo.image.name)
+                if os.path.exists(photo_path):
+                    photo_url = "file:///" + photo_path.replace("\\", "/")
+
+            persons_data.append({"person": p, "photo_url": photo_url})
+
+        context = {
+            "tree": tree,
+            "persons_data": persons_data,
+            "format": export_format,
+            "scope": scope,
+            "current_date": timezone.now(),
+        }
+        html_string = render_to_string("genealogy/tree_pdf.html", context, request=request)
+        # 4. Генерация PDF
+
+        result_buffer = io.BytesIO()
+        pdf = pisa.CreatePDF(html_string, dest=result_buffer, encoding="utf-8")
+
+        if pdf.err:
+            messages.error(request, "Ошибка при генерации PDF")
+            return redirect("genealogy:tree_detail", pk=tree.pk)
+
+        # 5. Возврат ответа и логирование
+
+        response = HttpResponse(result_buffer.getvalue(), content_type="application/pdf")
+        safe_name = "".join(ch if ch.isalnum() else "_" for ch in tree.name)[:30]
+        filename = f"{safe_name}_{export_format}_{timezone.now().strftime('%Y%m%d')}.pdf"
+        ascii_filename = f"tree_export_{timezone.now().strftime('%Y%m%d')}.pdf"
+        encoded_filename = quote(filename, safe="")
+
+        response["Content-Disposition"] = (
+            f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{encoded_filename}"
+        )
+
+        from genealogy.utils.audit import get_client_ip, log_action
+
+        log_action(
+            tree=tree,
+            user=request.user,
+            action="EXPORT",
+            entity_type="TREE",
+            entity_name=f"Экспорт дерева (PDF, {export_format}, {scope})",
+            ip_address=get_client_ip(request),
+        )
+
+        return response

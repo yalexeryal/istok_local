@@ -848,7 +848,6 @@ class PersonPhotoDeleteView(LoginRequiredMixin, View):
             ip_address=get_client_ip(request),
         )
 
-        # Удаляем файл с диска (ОДИН РАЗ!)
         if photo.image:
             photo.image.delete(save=False)
 

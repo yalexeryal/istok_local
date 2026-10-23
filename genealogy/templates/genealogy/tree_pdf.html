@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page { size: A4; margin: 1.5cm; }
+        body { font-family: 'ArialCyr', Arial, sans-serif; font-size: 10pt; line-height: 1.3; color: #333; }
+
+        /* Титульный лист */
+        .title-page {
+            height: 260mm;
+            text-align: center;
+            page-break-after: always;
+            border: 3px double #2563eb;
+            padding: 40px;
+            background-color: #fafafa;
+        }
+        .title-page h1 { font-size: 36pt; color: #1f2937; margin-top: 100px; margin-bottom: 20px; }
+        .title-page .subtitle { font-size: 18pt; color: #6b7280; margin-bottom: 60px; font-style: italic; }
+        .title-page .meta { font-size: 12pt; color: #4b5563; margin-top: 40px; border-top: 1px solid #d1d5db; padding-top: 20px; width: 80%; margin-left: auto; margin-right: auto; }
+        .title-page .meta p { margin: 8px 0; }
+
+        /* Формат 1: Таблица */
+        .data-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+        .data-table th { background-color: #f3f4f6; text-align: left; padding: 6px; border-bottom: 2px solid #d1d5db; }
+        .data-table td { padding: 6px; border-bottom: 1px solid #e5e7eb; }
+
+        /* Формат 2: Поколенная роспись */
+        .gen-list { list-style: none; padding: 0; margin: 0; }
+        .gen-item { margin-bottom: 8px; }
+        .gen-name { font-weight: bold; color: #1f2937; }
+        .gen-dates { color: #6b7280; font-size: 9pt; }
+
+        /* Формат 3: Карточки (одна на всю ширину) */
+        .card-container { width: 100%; }
+        .a6-card {
+            width: 100%;
+            margin: 10px 0;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 0;
+            page-break-inside: avoid;
+            background-color: #ffffff;
+            box-sizing: border-box;
+        }
+
+        .footer {
+            clear: both;
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 1px solid #e5e7eb;
+            text-align: center;
+            font-size: 8pt;
+            color: #9ca3af;
+        }
+    </style>
+</head>
+<body>
+    <!-- Титульный лист -->
+    <div class="title-page">
+        <h1>Родословная книга</h1>
+        <div class="subtitle">{{ tree.name }}</div>
+        <div class="meta">
+            <p><strong>Формат:</strong>
+                {% if format == 'table' %}Табличный список
+                {% elif format == 'generational' %}Поколенная роспись
+                {% else %}Компактные карточки{% endif %}
+            </p>
+            <p><strong>Область:</strong>
+                {% if scope == 'blood_only' %}Только кровные родственники
+                {% elif scope == 'relatives' %}Кровные родственники и их супруги
+                {% else %}Все персоны дерева{% endif %}
+            </p>
+            <p><strong>Всего персон:</strong> {{ persons_data|length }}</p>
+            <p><strong>Дата формирования:</strong> {{ current_date|date:"d E Y" }}</p>
+        </div>
+    </div>
+
+    <!-- ФОРМАТ 1: Табличный список -->
+    {% if format == 'table' %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>ФИО</th>
+                <th>Пол</th>
+                <th>Даты жизни</th>
+                <th>Место рождения</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in persons_data %}
+            <tr>
+                <td><strong>{{ item.person.full_name_display }}</strong></td>
+                <td>{{ item.person.get_gender_display }}</td>
+                <td>
+                    {% if item.person.birth_date %}{{ item.person.birth_date|date:"d.m.Y" }}{% endif %}
+                    {% if item.person.death_date %} — {{ item.person.death_date|date:"d.m.Y" }}{% endif %}
+                </td>
+                <td>{{ item.person.birth_place|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- ФОРМАТ 2: Поколенная роспись -->
+    {% elif format == 'generational' %}
+    <ul class="gen-list">
+        {% for item in persons_data %}
+        <li class="gen-item">
+            <span class="gen-name">{{ item.person.full_name_display }}</span>
+            <span class="gen-dates">
+                ({% if item.person.birth_date %}{{ item.person.birth_date|date:"Y" }}{% endif %}
+                {% if item.person.death_date %} — {{ item.person.death_date|date:"Y" }}{% endif %})
+                {% if item.person.birth_place %} · {{ item.person.birth_place }}{% endif %}
+            </span>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <!-- ФОРМАТ 3: Компактные карточки (одна на всю ширину) -->
+    {% else %}
+    <div class="card-container">
+        {% for item in persons_data %}
+        <div class="a6-card">
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <!-- Левая колонка: Фото (фиксированный размер) -->
+                    <td style="width: 70px; vertical-align: top; padding: 10px;">
+                        {% if item.photo_url %}
+                            <img src="{{ item.photo_url }}" alt="Фото" style="width: 60px; height: 75px; object-fit: cover; border: 1px solid #d1d5db; border-radius: 4px;">
+                        {% else %}
+                            <div style="width: 60px; height: 75px; background-color: #e5e7eb; text-align: center; line-height: 75px; font-size: 28pt; color: #9ca3af; border: 1px solid #d1d5db; border-radius: 4px;"></div>
+                        {% endif %}
+                    </td>
+                    <!-- Правая колонка: Информация -->
+                    <td style="vertical-align: top; padding: 10px;">
+                        <h3 style="margin: 0 0 6px 0; font-size: 11pt; color: #2563eb; line-height: 1.2;">{{ item.person.full_name_display }}</h3>
+                        <p style="margin: 3px 0; font-size: 9pt; color: #4b5563;">
+                            <strong>Даты жизни:</strong>
+                            {% if item.person.birth_date %}{{ item.person.birth_date|date:"d.m.Y" }}{% endif %}
+                            {% if item.person.death_date %} — {{ item.person.death_date|date:"d.m.Y" }}{% endif %}
+                        </p>
+                        <p style="margin: 3px 0; font-size: 9pt; color: #4b5563;">
+                            <strong>Место рождения:</strong> {{ item.person.birth_place|default:"Не указано" }}
+                        </p>
+                        {% if item.person.death_date and item.person.burial_place %}
+                        <p style="margin: 3px 0; font-size: 9pt; color: #4b5563;">
+                            <strong>Место захоронения:</strong> {{ item.person.burial_place }}
+                        </p>
+                        {% endif %}
+                        <p style="margin: 3px 0; font-size: 9pt; color: #6b7280;">
+                            <strong>Возраст:</strong>
+                            {% if item.person.age %}{{ item.person.age }} лет{% if item.person.is_alive %} (жив){% else %} (†){% endif %}
+                            {% else %}—{% endif %}
+                        </p>
+                    </td>
+                </tr>
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        Документ сформирован в системе «Исток» · {{ current_date|date:"d E Y, H:i" }}
+    </div>
+</body>
+</html>

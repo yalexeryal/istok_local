@@ -3,160 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <style>
-        @page {
-            size: A4;
-            margin: 2cm;
-        }
-
-        /* Явно указываем зарегистрированный в Python шрифт ArialCyr */
-        body, h1, h2, h3, p, td, th, div, span, li, a {
-            font-family: 'ArialCyr', sans-serif;
-        }
-
-        body {
-            font-size: 11pt;
-            line-height: 1.5;
-            color: #333;
-        }
-
-        .header {
-            text-align: center;
-            border-bottom: 2px solid #2563eb;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
-        }
-
-        .header h1 {
-            font-size: 22pt;
-            color: #1f2937;
-            margin: 0 0 5px 0;
-        }
-
-        .header .subtitle {
-            font-size: 10pt;
-            color: #6b7280;
-        }
-
-        .photo-section {
-            text-align: center;
-            margin: 20px 0;
-        }
-
-        .photo-section img {
-            max-width: 200px;
-            max-height: 250px;
-            border: 1px solid #e5e7eb;
-        }
-
-        .photo-placeholder {
-            width: 150px;
-            height: 150px;
-            background-color: #f3f4f6;
-            display: inline-block;
-            line-height: 150px;
-            font-size: 60pt;
-            color: #9ca3af;
-            text-align: center;
-        }
-
-        .info-grid {
-            width: 100%;
-            margin: 15px 0;
-        }
-
-        .info-grid td {
-            padding: 8px 12px;
-            border-bottom: 1px solid #e5e7eb;
-            vertical-align: top;
-        }
-
-        .info-grid .label {
-            font-weight: bold;
-            color: #4b5563;
-            width: 35%;
-            background-color: #f9fafb;
-        }
-
-        .info-grid .value {
-            color: #1f2937;
-        }
-
-        .section-title {
-            font-size: 14pt;
-            color: #2563eb;
-            border-bottom: 1px solid #dbeafe;
-            padding-bottom: 5px;
-            margin: 25px 0 10px 0;
-        }
-
-        .relatives-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-
-        .relatives-list li {
-            padding: 6px 0;
-            border-bottom: 1px dotted #e5e7eb;
-        }
-
-        .relatives-list .name {
-            font-weight: bold;
-            color: #1f2937;
-        }
-
-        .relatives-list .relation {
-            color: #6b7280;
-            font-size: 9pt;
-            margin-left: 10px;
-            background-color: #f3f4f6;
-            padding: 2px 8px;
-        }
-
-        .timeline-item {
-            margin-bottom: 12px;
-            padding-left: 15px;
-            border-left: 3px solid #2563eb;
-        }
-
-        .timeline-item.relative {
-            border-left-color: #9333ea;
-        }
-
-        .timeline-date {
-            font-size: 9pt;
-            color: #6b7280;
-        }
-
-        .timeline-title {
-            font-weight: bold;
-            color: #1f2937;
-        }
-
-        .timeline-location {
-            font-size: 10pt;
-            color: #4b5563;
-        }
-
-        .footer {
-            margin-top: 40px;
-            padding-top: 15px;
-            border-top: 1px solid #e5e7eb;
-            text-align: center;
-            font-size: 9pt;
-            color: #9ca3af;
-        }
-
-        .notes {
-            background-color: #fef3c7;
-            border-left: 3px solid #f59e0b;
-            padding: 10px 15px;
-            margin: 15px 0;
-        }
+        @page { size: A4; margin: 2cm; }
+        body, h1, h2, h3, p, td, th, div, span, li, a { font-family: 'ArialCyr', Arial, sans-serif; }
+        body { font-size: 11pt; line-height: 1.5; color: #333; }
+        .header { text-align: center; border-bottom: 2px solid #2563eb; padding-bottom: 15px; margin-bottom: 20px; }
+        .header h1 { font-size: 22pt; color: #1f2937; margin: 0 0 5px 0; }
+        .header .subtitle { font-size: 10pt; color: #6b7280; }
+        .photo-section { text-align: center; margin: 20px 0; }
+        .photo-section img { max-width: 200px; max-height: 250px; border: 1px solid #e5e7eb; }
+        .photo-placeholder { width: 150px; height: 150px; background-color: #f3f4f6; display: inline-block; line-height: 150px; font-size: 60pt; color: #9ca3af; text-align: center; }
+        .info-grid { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        .info-grid td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+        .info-grid .label { font-weight: bold; color: #4b5563; width: 35%; background-color: #f9fafb; }
+        .info-grid .value { color: #1f2937; }
+        .section-title { font-size: 14pt; color: #2563eb; border-bottom: 1px solid #dbeafe; padding-bottom: 5px; margin: 25px 0 10px 0; }
+        .relatives-list { list-style: none; padding: 0; margin: 0; }
+        .relatives-list li { padding: 6px 0; border-bottom: 1px dotted #e5e7eb; }
+        .relatives-list .name { font-weight: bold; color: #1f2937; }
+        .relatives-list .relation { color: #6b7280; font-size: 9pt; margin-left: 10px; background-color: #f3f4f6; padding: 2px 8px; }
+        .timeline-item { margin-bottom: 12px; padding-left: 15px; border-left: 3px solid #2563eb; }
+        .timeline-item.relative { border-left-color: #9333ea; }
+        .timeline-date { font-size: 9pt; color: #6b7280; }
+        .timeline-title { font-weight: bold; color: #1f2937; }
+        .timeline-location { font-size: 10pt; color: #4b5563; }
+        .footer { margin-top: 40px; padding-top: 15px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 9pt; color: #9ca3af; }
+        .notes { background-color: #fef3c7; border-left: 3px solid #f59e0b; padding: 10px 15px; margin: 15px 0; }
     </style>
 </head>
 <body>
-    <!-- Шапка -->
     <div class="header">
         <h1>{{ person.full_name_display }}</h1>
         <div class="subtitle">
@@ -164,14 +38,11 @@
                 {% if person.birth_date %}{{ person.birth_date|date:"d.m.Y" }}{% endif %}
                 {% if person.birth_date and person.death_date %} — {% endif %}
                 {% if person.death_date %}{{ person.death_date|date:"d.m.Y" }}{% endif %}
-            {% else %}
-                Даты жизни не указаны
-            {% endif %}
+            {% else %}Даты жизни не указаны{% endif %}
         </div>
         <div class="subtitle">Дерево: {{ tree.name }}</div>
     </div>
 
-    <!-- Фото -->
     <div class="photo-section">
         {% if primary_photo_url %}
             <img src="{{ primary_photo_url }}" alt="{{ person.full_name_display }}">
@@ -180,88 +51,26 @@
         {% endif %}
     </div>
 
-    <!-- Основная информация -->
     <table class="info-grid">
-        <tr>
-            <td class="label">Фамилия</td>
-            <td class="value">{{ person.last_name|default:"—" }}</td>
-        </tr>
-        <tr>
-            <td class="label">Имя</td>
-            <td class="value">{{ person.first_name|default:"—" }}</td>
-        </tr>
-        {% if person.middle_name %}
-        <tr>
-            <td class="label">Отчество</td>
-            <td class="value">{{ person.middle_name }}</td>
-        </tr>
-        {% endif %}
-        {% if person.maiden_name %}
-        <tr>
-            <td class="label">Девичья фамилия</td>
-            <td class="value">{{ person.maiden_name }}</td>
-        </tr>
-        {% endif %}
-        <tr>
-            <td class="label">Пол</td>
-            <td class="value">{{ person.get_gender_display }}</td>
-        </tr>
-        {% if person.birth_date %}
-        <tr>
-            <td class="label">Дата рождения</td>
-            <td class="value">
-                {{ person.birth_date|date:"d E Y" }}
-                {% if person.is_birth_date_approx %}(приблизительно){% endif %}
-            </td>
-        </tr>
-        {% endif %}
-        {% if person.birth_place %}
-        <tr>
-            <td class="label">Место рождения</td>
-            <td class="value">{{ person.birth_place }}</td>
-        </tr>
-        {% endif %}
-        {% if person.death_date %}
-        <tr>
-            <td class="label">Дата смерти</td>
-            <td class="value">
-                {{ person.death_date|date:"d E Y" }}
-                {% if person.is_death_date_approx %}(приблизительно){% endif %}
-            </td>
-        </tr>
-        {% endif %}
-        {% if person.death_place %}
-        <tr>
-            <td class="label">Место смерти</td>
-            <td class="value">{{ person.death_place }}</td>
-        </tr>
-        {% endif %}
-        {% if person.culture %}
-        <tr>
-            <td class="label">Культура / Национальность</td>
-            <td class="value">{{ person.culture }}</td>
-        </tr>
-        {% endif %}
-        <tr>
-            <td class="label">Возраст</td>
-            <td class="value">
-                {% if person.age %}
-                    {{ person.age }}
-                    {% if person.is_alive %}(жив(а)){% else %}(†){% endif %}
-                {% else %}
-                    —
-                {% endif %}
-            </td>
-        </tr>
+        <tr><td class="label">Фамилия</td><td class="value">{{ person.last_name|default:"—" }}</td></tr>
+        <tr><td class="label">Имя</td><td class="value">{{ person.first_name|default:"—" }}</td></tr>
+        {% if person.middle_name %}<tr><td class="label">Отчество</td><td class="value">{{ person.middle_name }}</td></tr>{% endif %}
+        {% if person.maiden_name %}<tr><td class="label">Девичья фамилия</td><td class="value">{{ person.maiden_name }}</td></tr>{% endif %}
+        <tr><td class="label">Пол</td><td class="value">{{ person.get_gender_display }}</td></tr>
+        {% if person.birth_date %}<tr><td class="label">Дата рождения</td><td class="value">{{ person.birth_date|date:"d E Y" }}{% if person.is_birth_date_approx %} (приблизительно){% endif %}</td></tr>{% endif %}
+        {% if person.birth_place %}<tr><td class="label">Место рождения</td><td class="value">{{ person.birth_place }}</td></tr>{% endif %}
+        {% if person.death_date %}<tr><td class="label">Дата смерти</td><td class="value">{{ person.death_date|date:"d E Y" }}{% if person.is_death_date_approx %} (приблизительно){% endif %}</td></tr>{% endif %}
+        {% if person.death_place %}<tr><td class="label">Место смерти</td><td class="value">{{ person.death_place }}</td></tr>{% endif %}
+        {% if person.burial_place %}<tr><td class="label">Место захоронения</td><td class="value">{{ person.burial_place }}</td></tr>{% endif %}
+        {% if person.culture %}<tr><td class="label">Культура / Национальность</td><td class="value">{{ person.culture }}</td></tr>{% endif %}
+        <tr><td class="label">Возраст</td><td class="value">{% if person.age %}{{ person.age }} {% if person.is_alive %}(жив(а)){% else %}(†){% endif %}{% else %}—{% endif %}</td></tr>
     </table>
 
-    <!-- Заметки -->
     {% if person.notes %}
     <div class="section-title">📝 Заметки</div>
     <div class="notes">{{ person.notes }}</div>
     {% endif %}
 
-    <!-- Ближайшие родственники -->
     {% if close_relatives %}
     <div class="section-title">👨‍👩‍👧‍👦 Ближайшие родственники</div>
     <ul class="relatives-list">
@@ -279,7 +88,6 @@
     </ul>
     {% endif %}
 
-    <!-- Хронология жизни -->
     {% if combined_timeline %}
     <div class="section-title">📅 Хронология жизни</div>
     {% for item in combined_timeline %}
@@ -305,7 +113,6 @@
     {% endfor %}
     {% endif %}
 
-    <!-- Подвал -->
     <div class="footer">
         Документ сформирован в системе «Исток» · {{ current_date|date:"d E Y, H:i" }}<br>
         Всего персон в дереве: {{ tree.persons.count }}
