@@ -22,7 +22,7 @@
     }
 </style>
 
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="personTable()">
+<div class="w-full px-2 sm:px-4 lg:px-6 py-8" x-data="personTable()">
     <!-- Заголовок и управление -->
     <div x-data="{ showPdf: false }" class="mb-6">
         <div class="flex items-center justify-between flex-wrap gap-4 mb-4">
@@ -142,10 +142,10 @@
         </div>
     </div>
 
-    <!-- Контейнер для визуализации (Иерархия / Граф) -->
+        <!-- Контейнер для визуализации (Иерархия / Граф) -->
     <div x-show="view === 'hierarchy' || view === 'graph'"
-         class="bg-white rounded-lg shadow-sm border border-gray-200 relative"
-         style="width: 100%; height: 70vh; min-height: 600px;">
+         class="bg-white rounded-lg shadow-sm border border-gray-200 relative w-full"
+         style="height: 75vh; min-height: 600px;">
         <div id="cy-loading" class="absolute inset-0 flex items-center justify-center bg-white z-10 rounded-lg">
             <div class="text-center">
                 <div class="text-4xl mb-2 animate-spin">🌳</div>
@@ -317,7 +317,7 @@
     let currentCenterPersonId = null;
     let dagreAvailable = false;
 
-    // === ALPINE.JS ДЛЯ УПРАВЛЕНИЯ ВИДОМ, ФИЛЬТРАМИ И ТАБЛИЦЕЙ ===
+        // === ALPINE.JS ДЛЯ УПРАВЛЕНИЯ ВИДОМ, ФИЛЬТРАМИ И ТАБЛИЦЕЙ ===
     document.addEventListener('alpine:init', () => {
         Alpine.data('personTable', () => ({
             view: 'hierarchy',
@@ -331,6 +331,9 @@
             persons: {{ persons_json | safe }},
 
             init() {
+                // 🔍 ДЕЛАЕМ экземпляр доступным глобально для надежного вызова из vanilla JS
+                window.treeDataManager = this;
+
                 this.$watch('view', (newVal) => {
                     if ((newVal === 'hierarchy' || newVal === 'graph') && typeof window.renderGraph === 'function') {
                         currentLayout = newVal;
@@ -345,10 +348,14 @@
             },
 
             async loadData(centerPersonId = null) {
-                try {
-                    const loadingEl = document.getElementById('cy-loading');
-                    if (loadingEl) loadingEl.style.display = 'flex';
+                const loadingEl = document.getElementById('cy-loading');
+                // Гарантируем показ спиннера при начале загрузки
+                if (loadingEl) {
+                    loadingEl.style.display = 'flex';
+                    loadingEl.innerHTML = `<div class="text-center"><div class="text-4xl mb-2 animate-spin">🌳</div><p class="text-gray-500">Загрузка дерева...</p></div>`;
+                }
 
+                try {
                     let url = `/api/tree/{{ tree.pk }}/hierarchy/?scope=${this.scope}`;
                     if (centerPersonId) url += `&center_person=${centerPersonId}`;
 
@@ -356,12 +363,14 @@
                     if (!response.ok) throw new Error(`HTTP ошибка: ${response.status}`);
 
                     currentData = await response.json();
-                    currentCenterPersonId = currentData.center_person;
+                    // Безопасно преобразуем в строку
+                    currentCenterPersonId = currentData.center_person ? String(currentData.center_person) : null;
                     this.filteredPersonIds = new Set(currentData.nodes.map(n => String(n.id)));
 
                     if (!currentData.nodes || currentData.nodes.length === 0) {
                         if (loadingEl) {
                             loadingEl.innerHTML = `<div class="text-center text-gray-500"><div class="text-4xl mb-2">📭</div><p>Персоны не найдены</p></div>`;
+                            loadingEl.querySelector('.animate-spin').style.display = 'none'; // Убираем спиннер, оставляем текст
                         }
                         return;
                     }
@@ -371,13 +380,12 @@
                     }
                 } catch (error) {
                     console.error("Ошибка загрузки:", error);
-                    const loadingEl = document.getElementById('cy-loading');
                     if (loadingEl) {
-                        loadingEl.innerHTML = `<div class="text-center text-red-500"><div class="text-4xl mb-2">⚠️</div><p>Не удалось загрузить данные</p></div>`;
+                        loadingEl.innerHTML = `<div class="text-center text-red-500"><div class="text-4xl mb-2">⚠️</div><p>Не удалось загрузить данные. Проверьте консоль (F12).</p></div>`;
+                        loadingEl.querySelector('.animate-spin')?.remove(); // Убираем спиннер при ошибке
                     }
                 }
             },
-
             get filteredPersons() {
                 let result = this.persons.filter(p => this.filteredPersonIds.has(String(p.id)));
                 result = result.filter(p => {
@@ -570,8 +578,10 @@
                 { selector: 'node[gender = "male"].dead', style: { 'background-color': '#bfdbfe', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7 } },
                 { selector: 'node[gender = "female"].dead', style: { 'background-color': '#fbcfe8', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7 } },
                 { selector: 'node[gender = "unknown"].dead', style: { 'background-color': '#e5e7eb', 'border-color': '#000000', 'border-width': 3, 'text-opacity': 0.7 } },
-                { selector: `node[id = "${currentCenterPersonId}"]`, style: { 'border-width': 4, 'border-color': '#eab308', 'background-color': '#fef9c3' } },
-
+                {
+                    selector: currentCenterPersonId ? `node[id = '${currentCenterPersonId}']` : 'node[id = "___none___"]',
+                    style: { 'border-width': 4, 'border-color': '#eab308', 'background-color': '#fef9c3' }
+                },
                 // === СТИЛИ СВЯЗЕЙ (РЕБЕР) ===
 
                                 // 1. Базовый стиль для ВСЕХ связей (серый, со стрелкой)
@@ -767,7 +777,7 @@
         return `M ${x1} ${y1} A ${outerRadius} ${outerRadius} 0 ${largeArcFlag} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerRadius} ${innerRadius} 0 ${largeArcFlag} 0 ${x4} ${y4} Z`;
     }
 
-    function showPersonSidebar(personId, data) {
+        function showPersonSidebar(personId, data) {
         const isDead = data.death_date && data.death_date !== "null" && data.death_date !== "";
         const isCenter = personId === currentCenterPersonId;
         const sidebar = document.getElementById('person-sidebar');
@@ -814,16 +824,27 @@
         `;
         sidebar.classList.remove('translate-x-full');
 
+        // 🔍 НАДЕЖНАЯ ОБРАБОТКА КЛИКА
         const btnMakeCenter = document.getElementById('btn-make-center');
         if (btnMakeCenter) {
-            btnMakeCenter.addEventListener('click', function () {
+            // Клонируем кнопку, чтобы удалить все предыдущие слушатели событий (защита от дублирования)
+            const newBtn = btnMakeCenter.cloneNode(true);
+            btnMakeCenter.parentNode.replaceChild(newBtn, btnMakeCenter);
+
+            newBtn.addEventListener('click', function () {
                 sidebar.classList.add('translate-x-full');
                 if (loadingEl) {
                     loadingEl.style.display = 'flex';
                     loadingEl.innerHTML = `<div class="text-center"><div class="text-4xl mb-2 animate-spin">🌳</div><p class="text-gray-500">Перестроение дерева...</p></div>`;
                 }
-                const alpineComponent = document.querySelector('[x-data]').__x.$data;
-                alpineComponent.loadData(personId);
+
+                // Вызываем метод через надежную глобальную ссылку
+                if (window.treeDataManager && typeof window.treeDataManager.loadData === 'function') {
+                    window.treeDataManager.loadData(personId);
+                } else {
+                    console.error("Не удалось найти компонент управления деревом");
+                    if (loadingEl) loadingEl.style.display = 'none';
+                }
             });
         }
     }

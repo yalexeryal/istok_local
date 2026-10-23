@@ -103,7 +103,7 @@
 
         <!-- Браки и дети -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- Статистика браков -->
+                        <!-- Статистика браков -->
             <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                 <h2 class="text-xl font-semibold text-gray-900 mb-4">💍 Браки</h2>
                 <div class="space-y-3">
@@ -127,6 +127,14 @@
                         <span class="text-gray-600">Самый короткий:</span>
                         <span class="font-semibold text-gray-900" id="stat-marriage-min">—</span>
                     </div>
+                </div>
+
+                <!-- 🔍 НОВЫЙ БЛОК: Список пар для отладки -->
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-2">Учтённые пары (для отладки):</h3>
+                    <ul id="marriage-couples-list" class="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                        <!-- Сюда JavaScript вставит имена -->
+                    </ul>
                 </div>
             </div>
 
@@ -209,7 +217,7 @@
         }
     }
 
-    function renderStats(data) {
+        function renderStats(data) {
         // Базовая статистика
         document.getElementById('stat-total').textContent = data.basic.total;
         document.getElementById('stat-alive').textContent = data.basic.alive;
@@ -239,12 +247,23 @@
             });
         }
 
-        // Браки
+        // Браки (цифры)
         document.getElementById('stat-marriages-count').textContent = data.marriages.count;
         document.getElementById('stat-divorces').textContent = data.marriages.divorces;
         document.getElementById('stat-marriage-avg').textContent = data.marriages.avg_duration ? `${data.marriages.avg_duration} лет` : '—';
         document.getElementById('stat-marriage-max').textContent = data.marriages.max_duration ? `${data.marriages.max_duration} лет` : '—';
         document.getElementById('stat-marriage-min').textContent = data.marriages.min_duration ? `${data.marriages.min_duration} лет` : '—';
+
+        // 🔍 НОВОЕ: Отображение списка пар для отладки (теперь внутри функции!)
+        const couplesList = document.getElementById('marriage-couples-list');
+        couplesList.innerHTML = '';
+        if (data.marriages.couples && data.marriages.couples.length > 0) {
+            data.marriages.couples.forEach(couple => {
+                couplesList.innerHTML += `<li>${couple}</li>`;
+            });
+        } else {
+            couplesList.innerHTML = '<li class="text-gray-400 italic">Нет браков в выбранной области</li>';
+        }
 
         // Дети
         document.getElementById('stat-children-avg').textContent = data.children.avg;

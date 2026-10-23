@@ -448,18 +448,54 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
             from_person_id__in=person_ids,
             to_person_id__in=person_ids,
             relationship_type=RelationshipTypeEnum.SPOUSE,
-        )
+        ).select_related("from_person", "to_person")
+
         marriage_count = spouse_rels.count()
         marriage_durations = []
+        marriage_couples = []  # ← НОВОЕ: список для отладки
+
         for rel in spouse_rels:
+            # Добавляем имена супругов в список (с годами для отладки)
+            from_person_info = rel.from_person.full_name_display
+            if rel.from_person.birth_date:
+                from_person_info += f" ({rel.from_person.birth_date.year}"
+                if rel.from_person.death_date:
+                    from_person_info += f"-{rel.from_person.death_date.year}"
+                from_person_info += ")"
+
+            to_person_info = rel.to_person.full_name_display
+            if rel.to_person.birth_date:
+                to_person_info += f" ({rel.to_person.birth_date.year}"
+                if rel.to_person.death_date:
+                    to_person_info += f"-{rel.to_person.death_date.year}"
+                to_person_info += ")"
+
+            marriage_couples.append(f"{from_person_info} и {to_person_info}")
+
             if rel.start_date:
-                end = rel.end_date or today
-                duration = (end - rel.start_date).days / 365.25
-                if duration >= 0:
+                # 🔍 УМНЫЙ РАСЧЕТ: если нет даты развода, берем дату смерти первого умершего супруга
+                if rel.end_date:
+                    end = rel.end_date
+                else:
+                    death_dates = []
+                    if rel.from_person.death_date:
+                        death_dates.append(rel.from_person.death_date)
+                    if rel.to_person.death_date:
+                        death_dates.append(rel.to_person.death_date)
+
+                    if death_dates:
+                        end = min(death_dates)  # Берем дату смерти первого умершего
+                    else:
+                        end = today  # Оба живы — считаем до сегодня
+
+                # Защита от некорректных данных (смерть до брака)
+                if end > rel.start_date:
+                    duration = (end - rel.start_date).days / 365.25
                     marriage_durations.append(duration)
 
         stats["marriages"] = {
             "count": marriage_count,
+            "couples": marriage_couples,  # ← НОВОЕ: передаем список пар на фронтенд
             "avg_duration": round(sum(marriage_durations) / len(marriage_durations), 1) if marriage_durations else None,
             "max_duration": round(max(marriage_durations), 1) if marriage_durations else None,
             "min_duration": round(min(marriage_durations), 1) if marriage_durations else None,
