@@ -27,9 +27,12 @@ from xhtml2pdf import pisa
 from genealogy.models import (
     CollaboratorRoleEnum,
     Person,
+    Relationship,
     Tree,
     TreeCollaborator,
 )
+from genealogy.utils.audit import get_client_ip, log_action
+from genealogy.utils.kinship import get_kinship_network
 
 
 class TreeListView(LoginRequiredMixin, ListView):
@@ -685,6 +688,129 @@ class TreePDFExportView(LoginRequiredMixin, View):
             action="EXPORT",
             entity_type="TREE",
             entity_name=f"Экспорт дерева (PDF, {export_format}, {scope})",
+            ip_address=get_client_ip(request),
+        )
+
+        return response
+
+
+class TreeKinshipExportView(LoginRequiredMixin, View):
+    """Умный экспорт выбранной области родства в CSV."""
+
+    def get(self, request, tree_pk):
+        tree = get_object_or_404(Tree, pk=tree_pk)
+        if not tree.user_can_view(request.user):
+            return HttpResponseForbidden("У вас нет доступа к этому дереву")
+
+        scope = request.GET.get("scope", "relatives")
+        center_person_id = request.GET.get("center_person")
+
+        # 1. Получаем ID персон на основе выбранной области
+        if scope in ["relatives", "blood_only"]:
+            if center_person_id:
+                try:
+                    center = Person.objects.get(pk=center_person_id, tree=tree)
+                    if scope == "blood_only":
+                        person_ids = get_kinship_network(center, include_spouses=False)
+                    else:
+                        person_ids = get_kinship_network(center, include_spouses=True)
+                except Person.DoesNotExist:
+                    person_ids = set(tree.persons.values_list("pk", flat=True))
+            else:
+                center = tree.persons.order_by("id").first()
+                if center:
+                    if scope == "blood_only":
+                        person_ids = get_kinship_network(center, include_spouses=False)
+                    else:
+                        person_ids = get_kinship_network(center, include_spouses=True)
+                else:
+                    person_ids = set(tree.persons.values_list("pk", flat=True))
+        else:
+            person_ids = set(tree.persons.values_list("pk", flat=True))
+
+        # 2. Получаем данные (только отфильтрованные персоны и связи между ними)
+        persons = Person.objects.filter(pk__in=person_ids).order_by("last_name", "first_name")
+        relationships = Relationship.objects.filter(
+            from_person__in=person_ids, to_person__in=person_ids
+        ).select_related("from_person", "to_person")
+
+        # 3. Формируем CSV-ответ
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        safe_name = "".join(ch if ch.isalnum() else "_" for ch in tree.name)[:30]
+        date_str = timezone.now().strftime("%Y%m%d")
+        filename = f"Экспорт_{scope}_{safe_name}_{date_str}.csv"
+
+        ascii_filename = f"export_{date_str}.csv"
+        encoded_filename = quote(filename, safe="")
+        response["Content-Disposition"] = (
+            f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{encoded_filename}"
+        )
+
+        # BOM для корректного открытия кириллицы в Excel
+        response.write("\ufeff")
+        writer = csv.writer(response)
+
+        # Секция 1: Персоны
+        writer.writerow(["=== ПЕРСОНЫ ==="])
+        writer.writerow(
+            [
+                "ID",
+                "Фамилия",
+                "Имя",
+                "Отчество",
+                "Девичья фамилия",
+                "Пол",
+                "Дата рождения",
+                "Место рождения",
+                "Дата смерти",
+                "Место смерти",
+                "Примечания",
+            ]
+        )
+
+        for p in persons:
+            writer.writerow(
+                [
+                    p.pk,
+                    p.last_name or "",
+                    p.first_name or "",
+                    p.middle_name or "",
+                    p.maiden_name or "",
+                    p.get_gender_display(),
+                    p.birth_date.strftime("%d.%m.%Y") if p.birth_date else "",
+                    p.birth_place or "",
+                    p.death_date.strftime("%d.%m.%Y") if p.death_date else "",
+                    p.death_place or "",
+                    p.notes or "",
+                ]
+            )
+
+        writer.writerow([])
+
+        # Секция 2: Связи
+        writer.writerow(["=== СВЯЗИ ==="])
+        writer.writerow(["От (ID)", "От (ФИО)", "К (ID)", "К (ФИО)", "Тип связи", "Дата начала", "Дата окончания"])
+
+        for rel in relationships:
+            writer.writerow(
+                [
+                    rel.from_person_id,
+                    rel.from_person.full_name_display,
+                    rel.to_person_id,
+                    rel.to_person.full_name_display,
+                    rel.get_relationship_type_display(),
+                    rel.start_date.strftime("%d.%m.%Y") if rel.start_date else "",
+                    rel.end_date.strftime("%d.%m.%Y") if rel.end_date else "",
+                ]
+            )
+
+        # Логируем действие
+        log_action(
+            tree=tree,
+            user=request.user,
+            action="EXPORT",
+            entity_type="TREE",
+            entity_name=f"Экспорт CSV ({scope}, {len(person_ids)} персон)",
             ip_address=get_client_ip(request),
         )
 

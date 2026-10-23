@@ -74,34 +74,40 @@
             </div>
         </div>
 
-        <!-- Раскрывающаяся панель с фильтрами PDF -->
+                <!-- Раскрывающаяся панель с фильтрами экспорта -->
         <div x-show="showPdf" @click.away="showPdf = false"
-             class="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <form action="{% url 'genealogy:tree_export_pdf' tree.pk %}" method="GET" class="flex gap-3 items-end flex-wrap">
-                <div class="flex flex-col">
-                    <label class="text-xs font-semibold text-gray-600 mb-1">Формат PDF</label>
-                    <select name="format" class="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white focus:ring-2 focus:ring-rose-500 focus:border-rose-500">
-                        <option value="table">📋 Табличный список</option>
-                        <option value="generational">🌳 Поколенная роспись</option>
-                        <option value="cards" selected>🪪 Краткие карточки</option>
-                    </select>
-                </div>
-
-                <div class="flex flex-col">
-                    <label class="text-xs font-semibold text-gray-600 mb-1">Область</label>
-                    <select name="scope" class="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white focus:ring-2 focus:ring-rose-500 focus:border-rose-500">
+             class="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200" x-data="{ expScope: 'relatives' }">
+            <div class="flex flex-col sm:flex-row gap-4 items-end">
+                <!-- Общий выбор области для обоих форматов -->
+                <div class="flex flex-col flex-1">
+                    <label class="text-xs font-semibold text-gray-600 mb-1">Область экспорта</label>
+                    <select x-model="expScope" class="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white focus:ring-2 focus:ring-rose-500 focus:border-rose-500">
                         <option value="all">🌍 Всё дерево</option>
                         <option value="relatives" selected>👨‍👩‍👧‍👦 Кровные + супруги</option>
                         <option value="blood_only">🩸 Только кровные</option>
                     </select>
                 </div>
 
-                <button type="submit" class="px-4 py-2 bg-rose-600 text-white rounded-md hover:bg-rose-700 transition font-medium">
-                    Скачать
-                </button>
-            </form>
+                <div class="flex gap-2 flex-wrap">
+                    <!-- Кнопка PDF -->
+                    <form action="{% url 'genealogy:tree_export_pdf' tree.pk %}" method="GET">
+                        <input type="hidden" name="scope" :value="expScope">
+                        <input type="hidden" name="format" value="cards">
+                        <button type="submit" class="px-4 py-2 bg-rose-600 text-white rounded-md hover:bg-rose-700 transition font-medium flex items-center gap-2">
+                            📥 Скачать PDF
+                        </button>
+                    </form>
+
+                    <!-- Кнопка CSV -->
+                    <form action="{% url 'genealogy:tree_export_csv' tree.pk %}" method="GET">
+                        <input type="hidden" name="scope" :value="expScope">
+                        <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition font-medium flex items-center gap-2">
+                            📊 Скачать CSV
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
-    </div>
 
     <!-- Панель управления: Вид и Связи -->
     <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-end mb-4">

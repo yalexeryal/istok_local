@@ -32,6 +32,7 @@ urlpatterns = [
     path("trees/", views.TreeListView.as_view(), name="tree_list"),
     path("tree/add/", views.TreeCreateView.as_view(), name="tree_create"),
     path("tree/<int:pk>/", views.TreeDetailView.as_view(), name="tree_detail"),
+    path("tree/<int:tree_pk>/export-csv/", views.TreeKinshipExportView.as_view(), name="tree_export_csv"),
     # === API ===
     path("api/tree/<int:pk>/data/", views.tree_data_api, name="tree_data_api"),
     path("api/tree/<int:tree_pk>/hierarchy/", views.TreeHierarchyAPI.as_view(), name="tree_hierarchy_api"),
