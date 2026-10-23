@@ -173,6 +173,19 @@
                 </div>
             </div>
             {% endif %}
+            {% if person.death_place %}
+            <div>
+                <div class="text-sm text-gray-500">Место смерти</div>
+                <div class="text-base font-medium">{{ person.death_place }}</div>
+            </div>
+            {% endif %}
+
+            {% if person.burial_place %}
+            <div>
+                <div class="text-sm text-gray-500">Место захоронения</div>
+                <div class="text-base font-medium text-gray-700">⚰️ {{ person.burial_place }}</div>
+            </div>
+            {% endif %}
             {% if person.culture %}
             <div>
                 <div class="text-sm text-gray-500">Культура / Национальность</div>
