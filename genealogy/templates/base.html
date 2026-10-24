@@ -62,11 +62,14 @@
                 <a href="{% url 'genealogy:tree_list' %}"
                    class="text-gray-700 hover:text-gray-900 font-medium transition">
                     Мои деревья
-                </a>
                 <a href="{% url 'genealogy:tree_import' %}"
-                   class="text-gray-700 hover:text-gray-900 font-medium transition">
-                    Импорт
-                </a>
+   class="text-gray-700 hover:text-gray-900 font-medium transition">
+    Импорт CSV
+</a>
+<a href="{% url 'genealogy:gedcom_import' %}"
+   class="text-gray-700 hover:text-gray-900 font-medium transition">
+    Импорт GEDCOM
+</a>
 
                 {% if user.is_staff %}
                 <a href="{% url 'admin:index' %}"
@@ -136,11 +139,14 @@
             <a href="{% url 'genealogy:tree_list' %}"
                class="block py-2 text-gray-700 hover:text-gray-900 font-medium">
                 Мои деревья
-            </a>
             <a href="{% url 'genealogy:tree_import' %}"
-               class="block py-2 text-gray-700 hover:text-gray-900 font-medium">
-                Импорт
-            </a>
+   class="text-gray-700 hover:text-gray-900 font-medium transition">
+    Импорт CSV
+</a>
+<a href="{% url 'genealogy:gedcom_import' %}"
+   class="text-gray-700 hover:text-gray-900 font-medium transition">
+    Импорт GEDCOM
+</a>
 
             {% if user.is_staff %}
             <a href="{% url 'admin:index' %}"

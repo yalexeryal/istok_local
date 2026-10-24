@@ -72,4 +72,5 @@ urlpatterns = [
         views.ImportConflictResolutionView.as_view(),
         name="import_conflict_resolution",
     ),
+    path("import/gedcom/", views.GedcomImportView.as_view(), name="gedcom_import"),
 ]

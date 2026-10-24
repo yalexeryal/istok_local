@@ -104,3 +104,30 @@ class ImportForm(forms.Form):
             if file.size > 50 * 1024 * 1024:
                 raise ValidationError("Размер файла не должен превышать 50 МБ")
         return file
+
+
+class GedcomImportForm(forms.Form):
+    """Форма для загрузки GEDCOM-файла."""
+
+    gedcom_file = forms.FileField(
+        label="GEDCOM файл",
+        help_text="Выберите файл в формате .ged",
+        widget=forms.FileInput(
+            attrs={
+                "accept": ".ged,.gedcom",
+                "class": "block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100",
+            }
+        ),
+    )
+    tree_name = forms.CharField(
+        label="Название дерева",
+        max_length=200,
+        required=False,
+        help_text="Оставьте пустым, чтобы использовать название из GEDCOM-файла",
+        widget=forms.TextInput(
+            attrs={
+                "class": "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm",
+                "placeholder": "Например: Моя семья",
+            }
+        ),
+    )

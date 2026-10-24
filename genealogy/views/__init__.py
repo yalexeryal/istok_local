@@ -15,6 +15,7 @@ from .export_views import (
     TreeExportView,
     TreeImportView,
 )
+from .gedcom_import_view import GedcomImportView
 from .person_views import (
     LinkRelativeView,
     PersonCreateView,
@@ -43,6 +44,7 @@ from .tree_views import (
 )
 
 __all__ = [
+    "GedcomImportView",
     "ImportConflictResolutionView",
     "LifeEventCreateView",
     "LifeEventDeleteView",

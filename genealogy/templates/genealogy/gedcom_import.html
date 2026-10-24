@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Импорт GEDCOM — Исток{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Заголовок -->
+    <div class="mb-6">
+        <div class="flex items-center justify-between flex-wrap gap-4 mb-4">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900">📥 Импорт из GEDCOM</h1>
+                <p class="mt-1 text-gray-600">
+                    Загрузите файл в формате GEDCOM (.ged) для создания нового дерева
+                </p>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+                <a href="{% url 'genealogy:tree_list' %}"
+                   class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium">
+                    ← К списку деревьев
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Информационный блок -->
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+        <h3 class="text-sm font-semibold text-blue-900 mb-2">ℹ️ О формате GEDCOM</h3>
+        <p class="text-sm text-blue-800">
+            GEDCOM — это стандартный формат для обмена генеалогическими данными между программами.
+            Его поддерживают MyHeritage, Family Tree Builder, Gramps, RootsMagic и многие другие.
+            Файл обычно имеет расширение <code class="bg-blue-100 px-1 rounded">.ged</code>.
+        </p>
+    </div>
+
+    <!-- Форма загрузки -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <form method="post" enctype="multipart/form-data" class="space-y-6">
+            {% csrf_token %}
+
+            <!-- Поле файла -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    GEDCOM файл <span class="text-red-500">*</span>
+                </label>
+                <input type="file" name="gedcom_file" accept=".ged,.gedcom" required
+                       class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                <p class="mt-1 text-xs text-gray-500">
+                    Допустимые форматы: .ged, .gedcom
+                </p>
+            </div>
+
+            <!-- Название дерева -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Название дерева
+                </label>
+                <input type="text" name="tree_name" maxlength="200"
+                       placeholder="Например: Моя семья"
+                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border">
+                <p class="mt-1 text-xs text-gray-500">
+                    Оставьте пустым, чтобы использовать название из файла
+                </p>
+            </div>
+
+            <!-- Кнопки -->
+            <div class="flex gap-3 pt-4 border-t border-gray-200">
+                <button type="submit"
+                        class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
+                    📥 Импортировать
+                </button>
+                <a href="{% url 'genealogy:tree_list' %}"
+                   class="px-6 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium">
+                    Отмена
+                </a>
+            </div>
+        </form>
+    </div>
+
+    <!-- Что будет импортировано -->
+    <div class="mt-6 bg-gray-50 rounded-lg border border-gray-200 p-6">
+        <h3 class="text-sm font-semibold text-gray-700 mb-3">📋 Что будет импортировано:</h3>
+        <ul class="space-y-2 text-sm text-gray-600">
+            <li class="flex items-start gap-2">
+                <span class="text-green-600 mt-0.5">✓</span>
+                <span><strong>Персоны</strong> — ФИО, пол, даты и места рождения/смерти, место захоронения, заметки</span>
+            </li>
+            <li class="flex items-start gap-2">
+                <span class="text-green-600 mt-0.5">✓</span>
+                <span><strong>Браки</strong> — связи между супругами с датой и местом бракосочетания</span>
+            </li>
+            <li class="flex items-start gap-2">
+                <span class="text-green-600 mt-0.5">✓</span>
+                <span><strong>Родство</strong> — связи "родитель → ребёнок" для каждого члена семьи</span>
+            </li>
+            <li class="flex items-start gap-2">
+                <span class="text-yellow-600 mt-0.5">⚠</span>
+                <span><strong>Дубликаты</strong> — персоны с совпадающими ФИО и датой рождения будут пропущены</span>
+            </li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
