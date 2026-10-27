@@ -151,16 +151,17 @@ def _extract_tag_value(line: str) -> tuple:
 
 def _parse_individual_record(lines: list) -> dict | None:
     """Парсит одну запись INDI."""
-    # Извлекаем pointer (например, @I356507740@)
     first_line = lines[0].strip()
     pointer_match = re.match(r"^0\s+(@[^@]+@)", first_line)
     if not pointer_match:
         return None
     pointer = pointer_match.group(1).strip("@")
 
-    first_name = ""
-    last_name = ""
-    middle_name = ""
+    raw_first_name = ""
+    raw_middle_name = ""
+    raw_surn = ""
+    raw_marnm = ""
+    raw_name_last = ""
     gender = "U"
     birth_date = None
     birth_date_approx = False
@@ -178,31 +179,31 @@ def _parse_individual_record(lines: list) -> dict | None:
             i += 1
             continue
 
-        if level == 1:
+        # 🔥 ИСПРАВЛЕНИЕ: Обрабатываем теги и 1-го, и 2-го уровня!
+        if level in (1, 2):
             if tag == "NAME":
-                # Формат: "First Middle /Last/ Suffix"
                 name_match = re.search(r"(.+?)\s*/(.+?)/\s*(.*)", value)
                 if name_match:
                     given = name_match.group(1).strip()
-                    last_name = name_match.group(2).strip()
-
-                    # Разделяем given на имя и отчество
+                    raw_name_last = name_match.group(2).strip()
                     parts = given.split()
                     if len(parts) >= 2:
-                        first_name = parts[0]
-                        middle_name = " ".join(parts[1:])
+                        raw_first_name = parts[0]
+                        raw_middle_name = " ".join(parts[1:])
                     else:
-                        first_name = given
+                        raw_first_name = given
                 else:
-                    first_name = value.strip()
+                    raw_first_name = value.strip()
 
             elif tag == "GIVN":
-                if not first_name:
-                    first_name = value
+                if not raw_first_name:
+                    raw_first_name = value.strip()
 
             elif tag == "SURN":
-                if not last_name:
-                    last_name = value
+                raw_surn = value.strip()
+
+            elif tag == "_MARNM":
+                raw_marnm = value.strip()
 
             elif tag == "SEX":
                 gender = value.strip().upper()
@@ -210,7 +211,6 @@ def _parse_individual_record(lines: list) -> dict | None:
                     gender = "U"
 
             elif tag == "BIRT":
-                # Ищем подтеги DATE и PLAC
                 j = i + 1
                 while j < len(lines):
                     sub_level, sub_tag, sub_value = _extract_tag_value(lines[j])
@@ -226,7 +226,6 @@ def _parse_individual_record(lines: list) -> dict | None:
                     j += 1
 
             elif tag == "DEAT":
-                # Ищем подтеги DATE и PLAC
                 j = i + 1
                 while j < len(lines):
                     sub_level, sub_tag, sub_value = _extract_tag_value(lines[j])
@@ -242,7 +241,6 @@ def _parse_individual_record(lines: list) -> dict | None:
                     j += 1
 
             elif tag == "BURI":
-                # Ищем подтег PLAC
                 j = i + 1
                 while j < len(lines):
                     sub_level, sub_tag, sub_value = _extract_tag_value(lines[j])
@@ -258,15 +256,34 @@ def _parse_individual_record(lines: list) -> dict | None:
 
         i += 1
 
-    # Пропускаем персон без имени
-    if not first_name and not last_name:
+    # 🔥 КЛЮЧЕВАЯ ЛОГИКА: определяем last_name и maiden_name
+    if raw_marnm:
+        last_name = raw_marnm
+        maiden_name = raw_surn if raw_surn and raw_surn != raw_marnm else ""
+    elif raw_surn:
+        last_name = raw_surn
+        maiden_name = ""
+    elif raw_name_last:
+        last_name = raw_name_last
+        maiden_name = ""
+    else:
+        last_name = ""
+        maiden_name = ""
+
+    # 🔍 ВРЕМЕННАЯ ОТЛАДКА: вы увидите это в консоли сервера, чтобы убедиться, что код работает
+    print(
+        f"✅ DEBUG: ID={pointer} | Имя={raw_first_name} | SURN={raw_surn} | MARNM={raw_marnm} -> ИТОГ: Фамилия='{last_name}', Девичья='{maiden_name}'"
+    )
+
+    if not raw_first_name and not last_name and not maiden_name:
         return None
 
     return {
         "gedcom_id": pointer,
-        "first_name": first_name,
+        "first_name": raw_first_name,
         "last_name": last_name,
-        "middle_name": middle_name,
+        "middle_name": raw_middle_name,
+        "maiden_name": maiden_name,  # Теперь гарантированно возвращается
         "gender": gender,
         "birth_date": birth_date,
         "birth_date_approx": birth_date_approx,

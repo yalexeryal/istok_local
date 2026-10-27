@@ -107,7 +107,7 @@ class ImportForm(forms.Form):
 
 
 class GedcomImportForm(forms.Form):
-    """Форма для загрузки GEDCOM-файла."""
+    """Форма для загрузки GEDCOM-файла с выбором режима импорта."""
 
     gedcom_file = forms.FileField(
         label="GEDCOM файл",
@@ -119,15 +119,60 @@ class GedcomImportForm(forms.Form):
             }
         ),
     )
+
+    import_mode = forms.ChoiceField(
+        label="Режим импорта",
+        choices=[
+            ("new", "Создать новое дерево"),
+            ("merge", "Добавить в существующее дерево"),
+        ],
+        initial="new",
+        widget=forms.RadioSelect(attrs={"class": "space-y-2"}),
+    )
+
     tree_name = forms.CharField(
-        label="Название дерева",
+        label="Название нового дерева",
         max_length=200,
         required=False,
         help_text="Оставьте пустым, чтобы использовать название из GEDCOM-файла",
         widget=forms.TextInput(
             attrs={
-                "class": "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm",
+                "class": "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border",
                 "placeholder": "Например: Моя семья",
             }
         ),
     )
+
+    target_tree = forms.ModelChoiceField(
+        queryset=Tree.objects.none(),
+        label="Выберите дерево",
+        required=False,
+        help_text="Данные будут добавлены в это дерево. Дубликаты (по ФИО и дате рождения) будут пропущены.",
+        widget=forms.Select(
+            attrs={
+                "class": "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border",
+            }
+        ),
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if user:
+            # 🔒 P1 Безопасность: показываем только деревья, где пользователь может редактировать
+            self.fields["target_tree"].queryset = Tree.objects.filter(
+                collaborators__user=user,
+                collaborators__role__in=[CollaboratorRoleEnum.OWNER, CollaboratorRoleEnum.EDITOR],
+            ).distinct()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        import_mode = cleaned_data.get("import_mode")
+
+        if import_mode == "merge":
+            target_tree = cleaned_data.get("target_tree")
+            if not target_tree:
+                raise forms.ValidationError({"target_tree": "Выберите дерево для импорта."})
+            # Очищаем название, чтобы логика view не пыталась создать новое дерево
+            cleaned_data["tree_name"] = ""
+
+        return cleaned_data

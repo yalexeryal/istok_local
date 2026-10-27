@@ -33,8 +33,8 @@
         </p>
     </div>
 
-    <!-- Форма загрузки -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <!-- Форма загрузки -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6" x-data="{ importMode: 'new' }">
         <form method="post" enctype="multipart/form-data" class="space-y-6">
             {% csrf_token %}
 
@@ -43,34 +43,66 @@
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                     GEDCOM файл <span class="text-red-500">*</span>
                 </label>
-                <input type="file" name="gedcom_file" accept=".ged,.gedcom" required
-                       class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-                <p class="mt-1 text-xs text-gray-500">
-                    Допустимые форматы: .ged, .gedcom
-                </p>
+                {{ form.gedcom_file }}
+                {% if form.gedcom_file.errors %}
+                    <p class="mt-1 text-xs text-red-600">{{ form.gedcom_file.errors.0 }}</p>
+                {% endif %}
             </div>
 
-            <!-- Название дерева -->
+            <!-- Режим импорта -->
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-2">
-                    Название дерева
+                    Режим импорта <span class="text-red-500">*</span>
                 </label>
-                <input type="text" name="tree_name" maxlength="200"
-                       placeholder="Например: Моя семья"
-                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border">
+                <div class="space-y-2">
+                    <label class="flex items-center cursor-pointer">
+                        <input type="radio" name="import_mode" value="new" x-model="importMode" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300" checked>
+                        <span class="ml-2 text-sm text-gray-700">Создать новое дерево</span>
+                    </label>
+                    <label class="flex items-center cursor-pointer">
+                        <input type="radio" name="import_mode" value="merge" x-model="importMode" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300">
+                        <span class="ml-2 text-sm text-gray-700">Добавить в существующее дерево</span>
+                    </label>
+                </div>
+                {% if form.import_mode.errors %}
+                    <p class="mt-1 text-xs text-red-600">{{ form.import_mode.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <!-- Название нового дерева (показывается только если new) -->
+            <div x-show="importMode === 'new'">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Название нового дерева
+                </label>
+                {{ form.tree_name }}
                 <p class="mt-1 text-xs text-gray-500">
                     Оставьте пустым, чтобы использовать название из файла
                 </p>
+                {% if form.tree_name.errors %}
+                    <p class="mt-1 text-xs text-red-600">{{ form.tree_name.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <!-- Выбор существующего дерева (показывается только если merge) -->
+            <div x-show="importMode === 'merge'">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Выберите дерево <span class="text-red-500">*</span>
+                </label>
+                {{ form.target_tree }}
+                <p class="mt-1 text-xs text-gray-500">
+                    Данные будут добавлены в это дерево. Дубликаты (по ФИО и дате рождения) будут автоматически пропущены.
+                </p>
+                {% if form.target_tree.errors %}
+                    <p class="mt-1 text-xs text-red-600">{{ form.target_tree.errors.0 }}</p>
+                {% endif %}
             </div>
 
             <!-- Кнопки -->
             <div class="flex gap-3 pt-4 border-t border-gray-200">
-                <button type="submit"
-                        class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
+                <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium">
                     📥 Импортировать
                 </button>
-                <a href="{% url 'genealogy:tree_list' %}"
-                   class="px-6 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium">
+                <a href="{% url 'genealogy:tree_list' %}" class="px-6 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium">
                     Отмена
                 </a>
             </div>

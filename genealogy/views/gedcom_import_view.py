@@ -9,6 +9,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.shortcuts import redirect, render
+from django.utils import timezone
 from django.views import View
 
 from genealogy.forms.export_import_forms import GedcomImportForm
@@ -30,16 +31,20 @@ class GedcomImportView(LoginRequiredMixin, View):
     template_name = "genealogy/gedcom_import.html"
 
     def get(self, request):
-        form = GedcomImportForm()
+        # 🔥 Передаем request.user, чтобы форма заполнила список доступных деревьев
+        form = GedcomImportForm(user=request.user)
         return render(request, self.template_name, {"form": form})
 
     def post(self, request):
-        form = GedcomImportForm(request.POST, request.FILES)
+        # Передаем request.user для валидации и фильтрации деревьев
+        form = GedcomImportForm(request.POST, request.FILES, user=request.user)
 
         if not form.is_valid():
             return render(request, self.template_name, {"form": form})
 
         gedcom_file = form.cleaned_data["gedcom_file"]
+        import_mode = form.cleaned_data["import_mode"]
+        target_tree = form.cleaned_data.get("target_tree")
         custom_tree_name = form.cleaned_data.get("tree_name", "").strip()
 
         # Проверяем расширение файла
@@ -59,49 +64,48 @@ class GedcomImportView(LoginRequiredMixin, View):
 
             if not parsed_data["persons"]:
                 error_msg = "В файле не найдено ни одной персоны."
-                # Показываем первые 3 ошибки парсинга, если они есть, для отладки
                 if parsed_data["errors"]:
                     error_msg += f" Ошибки парсинга: {'; '.join(parsed_data['errors'][:3])}"
                 messages.error(request, error_msg)
                 return render(request, self.template_name, {"form": form})
-            # Определяем название дерева
-            tree_name = custom_tree_name
-            if not tree_name:
-                # Добавляем временную метку для уникальности
-                from django.utils import timezone
 
-                timestamp = timezone.now().strftime("%Y%m%d_%H%M%S")
-                tree_name = f"Импорт из GEDCOM ({gedcom_file.name})_{timestamp}"
+            # === ЛОГИКА ВЫБОРА ДЕРЕВА ===
+            if import_mode == "merge" and target_tree:
+                tree = target_tree
+                tree_name = tree.name
+            else:
+                # Создаём новое дерево
+                tree_name = custom_tree_name
+                if not tree_name:
+                    timestamp = timezone.now().strftime("%Y%m%d_%H%M%S")
+                    tree_name = f"Импорт из GEDCOM ({gedcom_file.name})_{timestamp}"
 
-            # Проверяем, существует ли дерево с таким названием
-            if Tree.objects.filter(name=tree_name).exists():
-                # Если существует, добавляем номер
-                counter = 1
-                base_name = tree_name
-                while Tree.objects.filter(name=f"{base_name}_{counter}").exists():
-                    counter += 1
-                tree_name = f"{base_name}_{counter}"
+                # Защита от дубликатов имени
+                if Tree.objects.filter(name=tree_name).exists():
+                    counter = 1
+                    base_name = tree_name
+                    while Tree.objects.filter(name=f"{base_name}_{counter}").exists():
+                        counter += 1
+                    tree_name = f"{base_name}_{counter}"
 
-            # Создаём дерево
-            tree = Tree.objects.create(name=tree_name, description=f"Импортировано из файла {gedcom_file.name}")
+                tree = Tree.objects.create(name=tree_name, description=f"Импортировано из файла {gedcom_file.name}")
+                TreeCollaborator.objects.create(
+                    tree=tree, user=request.user, role=CollaboratorRoleEnum.OWNER, can_invite=True
+                )
 
-            # Назначаем текущего пользователя владельцем дерева
-            TreeCollaborator.objects.create(
-                tree=tree, user=request.user, role=CollaboratorRoleEnum.OWNER, can_invite=True
-            )
             # Импортируем данные
             result = self._import_data(tree, parsed_data)
 
             messages.success(
                 request,
-                f'✅ Дерево "{tree.name}" успешно создано! '
-                f"Импортировано: {result['persons_created']} персон, "
+                f'✅ Данные успешно импортированы в дерево "{tree.name}"! '
+                f"Создано: {result['persons_created']} персон, "
                 f"{result['relationships_created']} связей. "
                 f"Пропущено дубликатов: {result['duplicates_skipped']}.",
             )
 
             if result["warnings"]:
-                for warning in result["warnings"][:5]:  # Показываем первые 5 предупреждений
+                for warning in result["warnings"][:5]:
                     messages.warning(request, warning)
 
             return redirect("genealogy:tree_detail", pk=tree.pk)
@@ -111,7 +115,6 @@ class GedcomImportView(LoginRequiredMixin, View):
             return render(request, self.template_name, {"form": form})
 
         finally:
-            # Удаляем временный файл
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
@@ -132,12 +135,14 @@ class GedcomImportView(LoginRequiredMixin, View):
         # === 1. Создаём персон ===
         for person_data in parsed_data["persons"]:
             # Проверяем на дубликаты (по ФИО + дата рождения)
+            # Проверяем на дубликаты (по ФИО + дата рождения)
             existing = self._find_duplicate(
                 tree,
                 person_data["first_name"],
                 person_data["last_name"],
                 person_data["middle_name"],
                 person_data["birth_date"],
+                person_data.get("maiden_name", ""),  # ← ДОБАВЛЕНО
             )
 
             if existing:
@@ -155,6 +160,7 @@ class GedcomImportView(LoginRequiredMixin, View):
                 first_name=person_data["first_name"],
                 last_name=person_data["last_name"],
                 middle_name=person_data["middle_name"],
+                maiden_name=person_data.get("maiden_name", ""),  # ← ДОБАВЛЕНО
                 gender=gender,
                 birth_date=person_data["birth_date"],
                 is_birth_date_approx=person_data.get("birth_date_approx", False),
@@ -228,41 +234,6 @@ class GedcomImportView(LoginRequiredMixin, View):
                     )
                     relationships_created += 1
 
-            for child_id in children_ids:
-                # Отец -> Ребёнок
-                for child_id in children_ids:
-                    # Отец -> Ребёнок (объединенный if)
-                    if (
-                        husband_id
-                        and not Relationship.objects.filter(
-                            from_person_id=husband_id,
-                            to_person_id=child_id,
-                            relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                        ).exists()
-                    ):
-                        Relationship.objects.create(
-                            from_person_id=husband_id,
-                            to_person_id=child_id,
-                            relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                        )
-                        relationships_created += 1
-
-                    # Мать -> Ребёнок (объединенный if)
-                    if (
-                        wife_id
-                        and not Relationship.objects.filter(
-                            from_person_id=wife_id,
-                            to_person_id=child_id,
-                            relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                        ).exists()
-                    ):
-                        Relationship.objects.create(
-                            from_person_id=wife_id,
-                            to_person_id=child_id,
-                            relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                        )
-                        relationships_created += 1
-
         return {
             "persons_created": persons_created,
             "relationships_created": relationships_created,
@@ -271,20 +242,30 @@ class GedcomImportView(LoginRequiredMixin, View):
         }
 
     def _find_duplicate(
-        self, tree: Tree, first_name: str, last_name: str, middle_name: str, birth_date: str
+        self, tree: Tree, first_name: str, last_name: str, middle_name: str, birth_date: str, maiden_name: str = ""
     ) -> Person | None:
-        """
-        Ищет существующую персону с такими же ФИО и датой рождения.
-        """
-        if not (first_name and last_name):
+        if not (first_name and (last_name or maiden_name)):
             return None
 
-        queryset = Person.objects.filter(tree=tree, first_name__iexact=first_name, last_name__iexact=last_name)
+        queryset = Person.objects.filter(tree=tree, first_name__iexact=first_name)
 
         if middle_name:
             queryset = queryset.filter(middle_name__iexact=middle_name)
 
         if birth_date:
             queryset = queryset.filter(birth_date=birth_date)
+
+        from django.db.models import Q
+
+        name_conditions = Q()
+        if last_name:
+            name_conditions |= Q(last_name__iexact=last_name) | Q(maiden_name__iexact=last_name)
+        if maiden_name:
+            name_conditions |= Q(last_name__iexact=maiden_name) | Q(maiden_name__iexact=maiden_name)
+
+        if name_conditions:
+            queryset = queryset.filter(name_conditions)
+        else:
+            return None
 
         return queryset.first()
