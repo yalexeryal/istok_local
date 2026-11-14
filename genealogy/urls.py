@@ -73,4 +73,16 @@ urlpatterns = [
         name="import_conflict_resolution",
     ),
     path("import/gedcom/", views.GedcomImportView.as_view(), name="gedcom_import"),
+# Безопасная отдача файлов экспорта
+path(
+    "export/download/<int:task_pk>/",
+    views.SecureExportFileView.as_view(),
+    name="secure_export_download",
+),
+# Безопасная отдача фотографий персон
+path(
+    "person/<int:person_pk>/photo/",
+    views.SecurePersonPhotoView.as_view(),
+    name="secure_person_photo",
+),
 ]

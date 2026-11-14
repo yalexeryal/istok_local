@@ -5,7 +5,7 @@
 - Регистрацию всех моделей с удобными списками отображения
 - Inline-редактирование событий и связей внутри персоны
 - Фильтры и поиск для быстрого доступа к данным
-- Кастомные действия для массовых операций
+- Кастомные действия для массовых операций (включая слияние персон)
 """
 
 from django.contrib import admin
@@ -14,6 +14,8 @@ from django.contrib.auth.models import User
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.utils.html import format_html
+from django.contrib import messages
+from django.db import transaction
 
 from .models import (
     ChangeRequest,
@@ -21,6 +23,7 @@ from .models import (
     ImportTask,
     LifeEvent,
     Person,
+    PersonPhoto,
     PersonStatusEnum,
     PrivacySettings,
     Relationship,
@@ -35,11 +38,7 @@ from .models import (
 class LifeEventInline(admin.TabularInline):
     """
     Inline-редактирование событий жизни внутри страницы персоны.
-
-    Позволяет добавлять/редактировать события прямо на странице персоны,
-    не переходя в отдельную админку событий.
     """
-
     model = LifeEvent
     fk_name = "person"
     extra = 0
@@ -56,17 +55,13 @@ class LifeEventInline(admin.TabularInline):
     verbose_name_plural = "События жизни"
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[LifeEvent]:
-        """Оптимизация запросов: используем select_related."""
         return super().get_queryset(request).select_related("person", "created_by")
 
 
 class RelationshipInline(admin.TabularInline):
     """
     Inline-редактирование связей внутри страницы персоны.
-
-    Показывает только связи, где текущая персона — источник (from_person).
     """
-
     model = Relationship
     fk_name = "from_person"
     extra = 0
@@ -81,7 +76,6 @@ class RelationshipInline(admin.TabularInline):
     verbose_name_plural = "Родственные связи"
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[Relationship]:
-        """Оптимизация запросов."""
         return super().get_queryset(request).select_related("from_person", "to_person", "created_by")
 
 
@@ -89,7 +83,6 @@ class TreeCollaboratorInline(admin.TabularInline):
     """
     Inline-редактирование соавторов внутри страницы дерева.
     """
-
     model = TreeCollaborator
     extra = 0
     fields = ("user", "role", "can_invite")
@@ -103,10 +96,6 @@ class TreeCollaboratorInline(admin.TabularInline):
 
 @admin.register(Tree)
 class TreeAdmin(admin.ModelAdmin):
-    """
-    Админка для модели Tree (генеалогическое дерево).
-    """
-
     list_display = (
         "name",
         "get_owner_display",
@@ -125,40 +114,29 @@ class TreeAdmin(admin.ModelAdmin):
     fieldsets = (
         (
             "Основная информация",
-            {
-                "fields": ("name", "description", "is_public"),
-            },
+            {"fields": ("name", "description", "is_public")},
         ),
         (
             "Синхронизация",
-            {
-                "fields": ("sync_version", "last_synced_at"),
-                "classes": ("collapse",),
-            },
+            {"fields": ("sync_version", "last_synced_at"), "classes": ("collapse",)},
         ),
         (
             "Системная информация",
-            {
-                "fields": ("created_at", "updated_at"),
-                "classes": ("collapse",),
-            },
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
         ),
     )
 
     @admin.display(description="Владелец", ordering="collaborators__user")
     def get_owner_display(self, obj: Tree) -> str:
-        """Получить владельца дерева для отображения в списке."""
         owner = obj.get_owner()
         return owner.username if owner else "—"
 
     @admin.display(description="Персон")
     def persons_count(self, obj: Tree) -> int:
-        """Количество персон в дереве."""
         return obj.persons.count()
 
     @admin.display(description="Соавторов")
     def collaborators_count(self, obj: Tree) -> int:
-        """Количество соавторов дерева."""
         return obj.collaborators.count()
 
 
@@ -166,10 +144,8 @@ class TreeAdmin(admin.ModelAdmin):
 class PersonAdmin(admin.ModelAdmin):
     """
     Админка для модели Person (персона).
-
-    Включает inline-редактирование событий и связей.
+    Включает inline-редактирование событий и связей, а также инструмент слияния дубликатов.
     """
-
     list_display = (
         "full_name_display",
         "get_tree_name",
@@ -210,68 +186,40 @@ class PersonAdmin(admin.ModelAdmin):
     fieldsets = (
         (
             "Основные данные",
-            {
-                "fields": (
-                    "tree",
-                    "first_name",
-                    "middle_name",
-                    "last_name",
-                    "maiden_name",
-                    "gender",
-                ),
-            },
+            {"fields": ("tree", "first_name", "middle_name", "last_name", "maiden_name", "gender")},
         ),
         (
             "Даты жизни",
-            {
-                "fields": (
-                    ("birth_date", "is_birth_date_approx"),
-                    ("death_date", "is_death_date_approx"),
-                ),
-            },
+            {"fields": (("birth_date", "is_birth_date_approx"), ("death_date", "is_death_date_approx"))},
         ),
         (
             "Места",
-            {
-                "fields": ("birth_place", "death_place", "burial_place"),
-            },
+            {"fields": ("birth_place", "death_place", "burial_place")},
         ),
         (
             "Дополнительно",
-            {
-                "fields": ("culture", "photo", "photo_preview", "notes"),
-            },
+            {"fields": ("culture", "photo", "photo_preview", "notes")},
         ),
         (
             "Статус",
-            {
-                "fields": ("status", "merged_into"),
-            },
+            {"fields": ("status", "merged_into")},
         ),
         (
             "Синхронизация",
-            {
-                "fields": ("sync_version", "last_synced_at", "updated_by"),
-                "classes": ("collapse",),
-            },
+            {"fields": ("sync_version", "last_synced_at", "updated_by"), "classes": ("collapse",)},
         ),
         (
             "Системная информация",
-            {
-                "fields": ("created_at", "updated_at"),
-                "classes": ("collapse",),
-            },
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
         ),
     )
 
     @admin.display(description="Дерево", ordering="tree__name")
     def get_tree_name(self, obj: Person) -> str:
-        """Название дерева для отображения в списке."""
         return obj.tree.name
 
     @admin.display(description="Возраст")
     def get_age_display(self, obj: Person) -> str:
-        """Возраст или статус для отображения."""
         age = obj.age
         if age is None:
             return "—"
@@ -281,32 +229,90 @@ class PersonAdmin(admin.ModelAdmin):
 
     @admin.display(description="Фото")
     def photo_preview(self, obj: Person) -> str:
-        """Превью фотографии в админке."""
         if obj.photo:
             return format_html('<img src="{}" style="max-height: 100px; max-width: 100px;" />', obj.photo.url)
         return "—"
 
-    actions = ["mark_as_published", "mark_as_sandbox"]
+    # === ДЕЙСТВИЯ (ACTIONS) ===
+    actions = ["mark_as_published", "mark_as_sandbox", "merge_selected_persons"]
 
     @admin.action(description="Опубликовать выбранных персон")
     def mark_as_published(self, request: HttpRequest, queryset: QuerySet[Person]) -> None:
-        """Массовое изменение статуса на 'Опубликовано'."""
         count = queryset.update(status=PersonStatusEnum.PUBLISHED)
         self.message_user(request, f"Опубликовано персон: {count}")
 
     @admin.action(description="Вернуть в черновики")
     def mark_as_sandbox(self, request: HttpRequest, queryset: QuerySet[Person]) -> None:
-        """Массовое изменение статуса на 'Черновик'."""
         count = queryset.update(status=PersonStatusEnum.SANDBOX)
         self.message_user(request, f"Возвращено в черновики: {count}")
 
+    @admin.action(description="🔄 Объединить выбранные персоны (в первую выбранную)")
+    def merge_selected_persons(self, request: HttpRequest, queryset: QuerySet[Person]) -> None:
+        """
+        Объединяет выбранные дубликаты в первую выбранную персону.
+        Безопасно переносит связи, проверяя на дубликаты, чтобы избежать UNIQUE constraint failed.
+        """
+        if queryset.count() < 2:
+            self.message_user(request, "Для объединения выберите минимум 2 персоны.", level=messages.WARNING)
+            return
+
+        primary_person = queryset.first()
+        duplicates = queryset.exclude(pk=primary_person.pk)
+
+        try:
+            with transaction.atomic():
+                merged_count = 0
+                for dup in duplicates:
+                    # 1. Безопасный перенос связей "ОТ кого" (например, родитель -> ребенок)
+                    for rel in Relationship.objects.filter(from_person=dup):
+                        if Relationship.objects.filter(
+                                from_person=primary_person,
+                                to_person=rel.to_person,
+                                relationship_type=rel.relationship_type
+                        ).exists():
+                            rel.delete()  # Такая связь уже есть у главной персоны, удаляем дублирующую
+                        else:
+                            rel.from_person = primary_person
+                            rel.save(update_fields=['from_person'])
+
+                    # 2. Безопасный перенос связей "К кому" (например, ребенок -> родитель, или супруг -> супруг)
+                    for rel in Relationship.objects.filter(to_person=dup):
+                        if Relationship.objects.filter(
+                                from_person=rel.from_person,
+                                to_person=primary_person,
+                                relationship_type=rel.relationship_type
+                        ).exists():
+                            rel.delete()  # Такая связь уже есть у главной персоны
+                        else:
+                            rel.to_person = primary_person
+                            rel.save(update_fields=['to_person'])
+
+                    # 3. Перенос событий жизни (у них обычно нет жестких UNIQUE ограничений)
+                    LifeEvent.objects.filter(person=dup).update(person=primary_person)
+
+                    # 4. Перенос фотографий из галереи
+                    PersonPhoto.objects.filter(person=dup).update(person=primary_person)
+
+                    # 5. Если у главной персоны нет основного фото, а у дубликата есть — забираем его
+                    if not primary_person.photo and dup.photo:
+                        primary_person.photo = dup.photo
+                        primary_person.save(update_fields=['photo'])
+
+                    # 6. Удаляем самого дубликата
+                    dup.delete()
+                    merged_count += 1
+
+            self.message_user(
+                request,
+                f"✅ Успешно объединено {merged_count} персон в '{primary_person.full_name_display}'. "
+                "Все уникальные связи, события и фото перенесены, дубликаты связей автоматически удалены.",
+                level=messages.SUCCESS
+            )
+        except Exception as e:
+            self.message_user(request, f"❌ Ошибка при объединении: {e}", level=messages.ERROR)
 
 @admin.register(LifeEvent)
 class LifeEventAdmin(admin.ModelAdmin):
-    """
-    Админка для модели LifeEvent (событие жизни).
-    """
-
     list_display = (
         "get_person_name",
         "event_type",
@@ -327,16 +333,11 @@ class LifeEventAdmin(admin.ModelAdmin):
 
     @admin.display(description="Персона", ordering="person__last_name")
     def get_person_name(self, obj: LifeEvent) -> str:
-        """Имя персоны для отображения в списке."""
         return obj.person.full_name_display
 
 
 @admin.register(Relationship)
 class RelationshipAdmin(admin.ModelAdmin):
-    """
-    Админка для модели Relationship (родственная связь).
-    """
-
     list_display = (
         "from_person",
         "relationship_type",
@@ -358,10 +359,6 @@ class RelationshipAdmin(admin.ModelAdmin):
 
 @admin.register(TreeCollaborator)
 class TreeCollaboratorAdmin(admin.ModelAdmin):
-    """
-    Админка для модели TreeCollaborator (соавтор дерева).
-    """
-
     list_display = ("user", "tree", "role", "can_invite", "created_at")
     list_filter = ("role", "can_invite", "created_at")
     search_fields = ("user__username", "user__email", "tree__name")
@@ -372,10 +369,6 @@ class TreeCollaboratorAdmin(admin.ModelAdmin):
 
 @admin.register(ChangeRequest)
 class ChangeRequestAdmin(admin.ModelAdmin):
-    """
-    Админка для модели ChangeRequest (запрос на изменение).
-    """
-
     list_display = (
         "id",
         "person",
@@ -397,46 +390,16 @@ class ChangeRequestAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
     fieldsets = (
-        (
-            "Основная информация",
-            {
-                "fields": ("person", "change_type", "status"),
-            },
-        ),
-        (
-            "Участники",
-            {
-                "fields": ("requested_by", "owner"),
-            },
-        ),
-        (
-            "Данные изменения",
-            {
-                "fields": ("proposed_data",),
-            },
-        ),
-        (
-            "Ответ",
-            {
-                "fields": ("responded_at", "response_comment"),
-            },
-        ),
-        (
-            "Системная информация",
-            {
-                "fields": ("created_at",),
-                "classes": ("collapse",),
-            },
-        ),
+        ("Основная информация", {"fields": ("person", "change_type", "status")}),
+        ("Участники", {"fields": ("requested_by", "owner")}),
+        ("Данные изменения", {"fields": ("proposed_data",)}),
+        ("Ответ", {"fields": ("responded_at", "response_comment")}),
+        ("Системная информация", {"fields": ("created_at",), "classes": ("collapse",)}),
     )
 
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    """
-    Админка для модели UserProfile (профиль пользователя).
-    """
-
     list_display = (
         "user",
         "tier",
@@ -451,41 +414,15 @@ class UserProfileAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
     fieldsets = (
-        (
-            "Пользователь",
-            {
-                "fields": ("user",),
-            },
-        ),
-        (
-            "Тариф",
-            {
-                "fields": ("tier", "tier_expires_at"),
-            },
-        ),
-        (
-            "Устройства",
-            {
-                "fields": ("devices_count",),
-            },
-        ),
-        (
-            "Системная информация",
-            {
-                "fields": ("created_at", "updated_at"),
-                "classes": ("collapse",),
-            },
-        ),
+        ("Пользователь", {"fields": ("user",)}),
+        ("Тариф", {"fields": ("tier", "tier_expires_at")}),
+        ("Устройства", {"fields": ("devices_count",)}),
+        ("Системная информация", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
     )
-
-
-# === АДМИНКА ДЛЯ ЭКСПОРТ/ИМПОРТ ===
 
 
 @admin.register(PrivacySettings)
 class PrivacySettingsAdmin(admin.ModelAdmin):
-    """Админка для модели PrivacySettings."""
-
     list_display = (
         "user",
         "hide_birth_date",
@@ -499,12 +436,7 @@ class PrivacySettingsAdmin(admin.ModelAdmin):
     autocomplete_fields = ("user",)
 
     fieldsets = (
-        (
-            "Пользователь",
-            {
-                "fields": ("user",),
-            },
-        ),
+        ("Пользователь", {"fields": ("user",)}),
         (
             "Скрытие данных",
             {
@@ -515,29 +447,16 @@ class PrivacySettingsAdmin(admin.ModelAdmin):
                     "hide_death_place",
                     "hide_notes",
                     "hide_photos",
-                ),
+                )
             },
         ),
-        (
-            "Степень родства",
-            {
-                "fields": ("full_data_min_degree",),
-            },
-        ),
-        (
-            "Системная информация",
-            {
-                "fields": ("created_at", "updated_at"),
-                "classes": ("collapse",),
-            },
-        ),
+        ("Степень родства", {"fields": ("full_data_min_degree",)}),
+        ("Системная информация", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
     )
 
 
 @admin.register(ExportTask)
 class ExportTaskAdmin(admin.ModelAdmin):
-    """Админка для модели ExportTask."""
-
     list_display = (
         "id",
         "user",
@@ -561,39 +480,15 @@ class ExportTaskAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
     fieldsets = (
-        (
-            "Основная информация",
-            {
-                "fields": ("user", "tree", "export_type", "export_format"),
-            },
-        ),
-        (
-            "Для родственника",
-            {
-                "fields": ("target_person", "privacy_overrides"),
-                "classes": ("collapse",),
-            },
-        ),
-        (
-            "Статус",
-            {
-                "fields": ("status", "file", "file_size", "person_count"),
-            },
-        ),
-        (
-            "Системная информация",
-            {
-                "fields": ("created_at", "completed_at", "error_message"),
-                "classes": ("collapse",),
-            },
-        ),
+        ("Основная информация", {"fields": ("user", "tree", "export_type", "export_format")}),
+        ("Для родственника", {"fields": ("target_person", "privacy_overrides"), "classes": ("collapse",)}),
+        ("Статус", {"fields": ("status", "file", "file_size", "person_count")}),
+        ("Системная информация", {"fields": ("created_at", "completed_at", "error_message"), "classes": ("collapse",)}),
     )
 
 
 @admin.register(ImportTask)
 class ImportTaskAdmin(admin.ModelAdmin):
-    """Админка для модели ImportTask."""
-
     list_display = (
         "id",
         "user",
@@ -616,29 +511,9 @@ class ImportTaskAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
     fieldsets = (
-        (
-            "Основная информация",
-            {
-                "fields": ("user", "tree", "import_format", "source_file"),
-            },
-        ),
-        (
-            "Статус",
-            {
-                "fields": (
-                    "status",
-                    "person_count",
-                    "relationship_count",
-                ),
-            },
-        ),
-        (
-            "Системная информация",
-            {
-                "fields": ("created_at", "completed_at", "error_message"),
-                "classes": ("collapse",),
-            },
-        ),
+        ("Основная информация", {"fields": ("user", "tree", "import_format", "source_file")}),
+        ("Статус", {"fields": ("status", "person_count", "relationship_count")}),
+        ("Системная информация", {"fields": ("created_at", "completed_at", "error_message"), "classes": ("collapse",)}),
     )
 
 
@@ -646,10 +521,6 @@ class ImportTaskAdmin(admin.ModelAdmin):
 
 
 class UserProfileInline(admin.StackedInline):
-    """
-    Inline-редактирование профиля внутри страницы пользователя.
-    """
-
     model = UserProfile
     can_delete = False
     verbose_name = "Профиль istok_local"
@@ -658,19 +529,13 @@ class UserProfileInline(admin.StackedInline):
 
 
 class CustomUserAdmin(BaseUserAdmin):
-    """
-    Кастомная админка для встроенной модели User.
-    """
-
     inlines = (*BaseUserAdmin.inlines, UserProfileInline)
 
 
-# Перерегистрируем User с нашей кастомной админкой
 admin.site.unregister(User)
 admin.site.register(User, CustomUserAdmin)
 
 # === НАСТРОЙКА ЗАГОЛОВКОВ АДМИНКИ ===
-
 admin.site.site_header = "Исток — Управление генеалогическими данными"
 admin.site.site_title = "Исток Админ"
 admin.site.index_title = "Добро пожаловать в систему Исток"

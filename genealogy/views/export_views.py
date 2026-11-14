@@ -54,20 +54,29 @@ class TreeExportView(LoginRequiredMixin, View):
 
 
 class TreeExportResultView(LoginRequiredMixin, DetailView):
-    """Страница результата экспорта со ссылкой на скачивание."""
-
+    """
+    Страница результата экспорта.
+    """
     model = ExportTask
     template_name = "genealogy/tree_export_result.html"
     context_object_name = "task"
 
+    # 🔥 КРИТИЧЕСКИ ВАЖНО: Указываем, что ID задачи берётся из URL-параметра task_pk, а не pk
+    pk_url_kwarg = "task_pk"
+
     def get_queryset(self):
-        return ExportTask.objects.filter(user=self.request.user)
+        # 🔒 БЕЗОПАСНОСТЬ: Возвращаем только те задачи, которые принадлежат текущему пользователю
+        # и относятся именно к этому дереву (из URL).
+        return ExportTask.objects.filter(
+            user=self.request.user,
+            tree_id=self.kwargs["pk"]
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        # Передаём объект дерева в шаблон для кнопки "Вернуться к дереву"
         context["tree"] = self.object.tree
         return context
-
 
 class TreeImportView(LoginRequiredMixin, View):
     """Страница загрузки файла и запуска импорта."""

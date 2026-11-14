@@ -69,7 +69,7 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
         for p in persons_qs:
             full_name = f"{p['last_name'] or ''} {p['first_name'] or ''} {p['middle_name'] or ''}".strip()
 
-            photo_url = f"/media/{p['photo']}" if p["photo"] else None
+            photo_url = f"/person/{p['pk']}/photo/" if p["photo"] else None
 
             nodes.append(
                 {
@@ -151,7 +151,7 @@ class TreeAncestorsAPI(LoginRequiredMixin, View):
                     "death_date": center_person.death_date.isoformat() if center_person.death_date else None,
                     "is_birth_date_approx": center_person.is_birth_date_approx,
                     "is_death_date_approx": center_person.is_death_date_approx,
-                    "photo_url": center_person.photo.url if center_person.photo else None,
+                    "photo_url": f"/person/{center_person.pk}/photo/" if center_person.photo else None,
                     "generation": 0,
                 }
             ]
@@ -189,7 +189,7 @@ class TreeAncestorsAPI(LoginRequiredMixin, View):
                                 "death_date": parent.death_date.isoformat() if parent.death_date else None,
                                 "is_birth_date_approx": parent.is_birth_date_approx,
                                 "is_death_date_approx": parent.is_death_date_approx,
-                                "photo_url": parent.photo.url if parent.photo else None,
+                                "photo_url": f"/person/{parent.pk}/photo/" if parent.photo else None,
                                 "generation": gen,
                                 "parent_of": str(person.pk),
                             }

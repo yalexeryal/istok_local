@@ -31,6 +31,10 @@ from .relationship_views import (
     RelationshipCreateView,
     RelationshipDeleteView,
 )
+from .secure_file_views import (
+    SecureExportFileView,
+    SecurePersonPhotoView,
+)
 from .tree_views import (
     TreeAuditLogView,
     TreeCreateView,
@@ -61,6 +65,8 @@ __all__ = [
     "RegisterView",
     "RelationshipCreateView",
     "RelationshipDeleteView",
+    "SecureExportFileView",
+    "SecurePersonPhotoView",
     "TreeAncestorsAPI",
     "TreeAuditLogView",
     "TreeCreateView",

@@ -229,7 +229,7 @@
                         {{ form.photo }}
                         {% if form.photo.errors %}<p class="mt-1 text-sm text-red-600">{{ form.photo.errors.0 }}</p>{% endif %}
                         {% if form.instance.photo %}
-                            <div class="mt-2"><img src="{{ form.instance.photo.url }}" alt="Текущее фото" class="h-24 w-24 object-cover rounded border"></div>
+                            <div class="mt-2"><img src="{% url 'genealogy:secure_person_photo' form.instance.pk %}" alt="Текущее фото" class="h-24 w-24 object-cover rounded border"></div>
                         {% endif %}
                     </div>
                     <div>

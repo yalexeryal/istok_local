@@ -84,7 +84,7 @@
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {% for photo in person.photos.all %}
                 <div class="relative group bg-gray-100 rounded-lg overflow-hidden border border-gray-200 aspect-square">
-                    <img src="{{ photo.image.url }}" alt="{{ photo.caption|default:'Фото' }}"
+                    <img src="{% url 'genealogy:secure_person_photo' photo.person.pk %}?photo_id={{ photo.pk }}" alt="{{ photo.caption|default:'Фото' }}"
                          class="w-full h-full object-cover">
 
                     {% if photo.is_primary %}
@@ -132,7 +132,7 @@
         <h2 class="text-xl font-semibold text-gray-900 mb-4">Основная информация</h2>
         <div class="flex justify-center items-start">
             {% if primary_photo %}
-            <img src="{{ primary_photo.image.url }}" alt="{{ person.full_name_display }}"
+            <img src="{% url 'genealogy:secure_person_photo' person.pk %}" alt="{{ person.full_name_display }}"
                  class="max-w-xs rounded-lg shadow-md">
             {% else %}
             <div class="w-48 h-48 bg-gray-100 rounded-lg flex items-center justify-center">
