@@ -52,3 +52,37 @@ htmlcov/
 
 # Ruff
 .ruff_cache/
+# Экспорт/импорт файлы
+*.zip
+*.ged
+*.gedcom
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Django
+*.sqlite3
+*.sqlite3-journal
+db.sqlite3
+media/
+staticfiles/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pre-commit cache
+.pre-commit/
