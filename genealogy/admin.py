@@ -8,14 +8,13 @@
 - Кастомные действия для массовых операций (включая слияние персон)
 """
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.utils.html import format_html
-from django.contrib import messages
-from django.db import transaction
 
 from .models import (
     ChangeRequest,
@@ -39,6 +38,7 @@ class LifeEventInline(admin.TabularInline):
     """
     Inline-редактирование событий жизни внутри страницы персоны.
     """
+
     model = LifeEvent
     fk_name = "person"
     extra = 0
@@ -62,6 +62,7 @@ class RelationshipInline(admin.TabularInline):
     """
     Inline-редактирование связей внутри страницы персоны.
     """
+
     model = Relationship
     fk_name = "from_person"
     extra = 0
@@ -83,6 +84,7 @@ class TreeCollaboratorInline(admin.TabularInline):
     """
     Inline-редактирование соавторов внутри страницы дерева.
     """
+
     model = TreeCollaborator
     extra = 0
     fields = ("user", "role", "can_invite")
@@ -146,6 +148,7 @@ class PersonAdmin(admin.ModelAdmin):
     Админка для модели Person (персона).
     Включает inline-редактирование событий и связей, а также инструмент слияния дубликатов.
     """
+
     list_display = (
         "full_name_display",
         "get_tree_name",
@@ -266,26 +269,24 @@ class PersonAdmin(admin.ModelAdmin):
                     # 1. Безопасный перенос связей "ОТ кого" (например, родитель -> ребенок)
                     for rel in Relationship.objects.filter(from_person=dup):
                         if Relationship.objects.filter(
-                                from_person=primary_person,
-                                to_person=rel.to_person,
-                                relationship_type=rel.relationship_type
+                            from_person=primary_person, to_person=rel.to_person, relationship_type=rel.relationship_type
                         ).exists():
                             rel.delete()  # Такая связь уже есть у главной персоны, удаляем дублирующую
                         else:
                             rel.from_person = primary_person
-                            rel.save(update_fields=['from_person'])
+                            rel.save(update_fields=["from_person"])
 
                     # 2. Безопасный перенос связей "К кому" (например, ребенок -> родитель, или супруг -> супруг)
                     for rel in Relationship.objects.filter(to_person=dup):
                         if Relationship.objects.filter(
-                                from_person=rel.from_person,
-                                to_person=primary_person,
-                                relationship_type=rel.relationship_type
+                            from_person=rel.from_person,
+                            to_person=primary_person,
+                            relationship_type=rel.relationship_type,
                         ).exists():
                             rel.delete()  # Такая связь уже есть у главной персоны
                         else:
                             rel.to_person = primary_person
-                            rel.save(update_fields=['to_person'])
+                            rel.save(update_fields=["to_person"])
 
                     # 3. Перенос событий жизни (у них обычно нет жестких UNIQUE ограничений)
                     LifeEvent.objects.filter(person=dup).update(person=primary_person)
@@ -296,7 +297,7 @@ class PersonAdmin(admin.ModelAdmin):
                     # 5. Если у главной персоны нет основного фото, а у дубликата есть — забираем его
                     if not primary_person.photo and dup.photo:
                         primary_person.photo = dup.photo
-                        primary_person.save(update_fields=['photo'])
+                        primary_person.save(update_fields=["photo"])
 
                     # 6. Удаляем самого дубликата
                     dup.delete()
@@ -306,10 +307,11 @@ class PersonAdmin(admin.ModelAdmin):
                 request,
                 f"✅ Успешно объединено {merged_count} персон в '{primary_person.full_name_display}'. "
                 "Все уникальные связи, события и фото перенесены, дубликаты связей автоматически удалены.",
-                level=messages.SUCCESS
+                level=messages.SUCCESS,
             )
         except Exception as e:
             self.message_user(request, f"❌ Ошибка при объединении: {e}", level=messages.ERROR)
+
 
 @admin.register(LifeEvent)
 class LifeEventAdmin(admin.ModelAdmin):

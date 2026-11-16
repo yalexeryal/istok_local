@@ -3,6 +3,7 @@
 Включает защиту от чрезмерного расхода ресурсов (P1 безопасность).
 """
 
+import contextlib
 import json
 import zipfile
 from io import BytesIO
@@ -45,11 +46,11 @@ class ImportService:
     """Сервис для импорта данных генеалогического дерева."""
 
     def create_import_task(
-            self,
-            user,
-            source_file: UploadedFile,
-            import_format: str = ExportFormatEnum.JSON_ZIP,
-            target_tree: Tree | None = None,
+        self,
+        user,
+        source_file: UploadedFile,
+        import_format: str = ExportFormatEnum.JSON_ZIP,
+        target_tree: Tree | None = None,
     ) -> ImportTask:
         """Создаёт задачу на импорт."""
         # 🔒 Проверка прав при слиянии в существующее дерево
@@ -86,11 +87,8 @@ class ImportService:
     def analyze_import(self, task: ImportTask) -> list[dict]:
         """
         Анализирует файл импорта и находит потенциальные дубликаты.
-
-        Returns:
-            list[dict]: Список конфликтов с информацией о дубликатах.
         """
-        # 🔒 Проверка состояния задачи
+        # Простая проверка статуса (без блокировки, так как SQLite сам сериализует)
         task.refresh_from_db()
         if task.status != ImportStatusEnum.PENDING:
             raise ImportError("Задача уже была проанализирована")
@@ -121,37 +119,45 @@ class ImportService:
     def apply_import(self, task: ImportTask, decisions: list[dict]) -> ImportTask:
         """
         Применяет импорт с учётом решений пользователя.
+        Гарантирует атомарность: данные и статус обновляются в одной транзакции.
         """
-        # 🔒 Проверка состояния и прав
+        # Простая проверка статуса
         task.refresh_from_db()
         if task.status != ImportStatusEnum.PROCESSING:
             raise ImportError("Задача не находится в состоянии анализа")
         if not task.tree or not task.tree.user_can_edit(task.user):
             raise ImportError("Нет прав для импорта в это дерево")
 
-        try:
-            task.status = ImportStatusEnum.PROCESSING
-            task.save(update_fields=["status"])
+        # 🔒 АТОМАРНОСТЬ: Весь процесс в одной транзакции
+        with transaction.atomic():
+            try:
+                if task.import_format == ExportFormatEnum.JSON_ZIP:
+                    person_count, relationship_count = self._apply_json_zip_import(task, decisions)
+                else:
+                    raise ImportError(f"Неизвестный формат импорта: {task.import_format}")
 
-            if task.import_format == ExportFormatEnum.JSON_ZIP:
-                person_count, relationship_count = self._apply_json_zip_import(task, decisions)
-            else:
-                raise ImportError(f"Неизвестный формат импорта: {task.import_format}")
+                # Обновляем статус в той же транзакции
+                task.person_count = person_count
+                task.relationship_count = relationship_count
+                task.status = ImportStatusEnum.COMPLETED
+                task.completed_at = timezone.now()
+                task.save()
 
-            task.person_count = person_count
-            task.relationship_count = relationship_count
-            task.status = ImportStatusEnum.COMPLETED
-            task.completed_at = timezone.now()
-            task.save()
+                return task
 
-            return task
+            except Exception as e:
+                # При сбое фиксируем ошибку
+                task.status = ImportStatusEnum.FAILED
+                task.error_message = str(e)
+                task.completed_at = timezone.now()
+                task.save()
 
-        except Exception as e:
-            task.status = ImportStatusEnum.FAILED
-            task.error_message = str(e)
-            task.completed_at = timezone.now()
-            task.save()
-            raise
+                # 🔒 ОЧИСТКА ПРИ ОТКАТЕ: удаляем временный файл
+                if task.source_file:
+                    with contextlib.suppress(Exception):
+                        task.source_file.delete(save=False)
+
+                raise
 
     def _validate_zip_safety(self, zip_file: zipfile.ZipFile) -> None:
         """
@@ -264,8 +270,7 @@ class ImportService:
             # 🔒 P1: Лимит на количество персон
             if len(persons_data) > MAX_PERSONS_PER_IMPORT:
                 raise ImportError(
-                    f"Слишком много персон для импорта: {len(persons_data)}. "
-                    f"Максимум: {MAX_PERSONS_PER_IMPORT}."
+                    f"Слишком много персон для импорта: {len(persons_data)}. " f"Максимум: {MAX_PERSONS_PER_IMPORT}."
                 )
 
             # 🔒 P1: Валидация схемы каждой записи
@@ -313,7 +318,7 @@ class ImportService:
             return conflicts
 
     def _find_duplicates(
-            self, tree: Tree, first_name: str, middle_name: str, last_name: str, birth_date
+        self, tree: Tree, first_name: str, middle_name: str, last_name: str, birth_date
     ) -> list[Person]:
         """Ищет потенциальные дубликаты в дереве."""
         if not first_name:
@@ -555,9 +560,9 @@ class ImportService:
             rel_type = rel_data.get("relationship_type")
 
             if Relationship.objects.filter(
-                    from_person_id=new_from_id,
-                    to_person_id=new_to_id,
-                    relationship_type=rel_type,
+                from_person_id=new_from_id,
+                to_person_id=new_to_id,
+                relationship_type=rel_type,
             ).exists():
                 continue
 
