@@ -31,7 +31,10 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
         center_person_id = request.GET.get("center_person")
 
         if center_person_id:
-            center_person = get_object_or_404(Person, pk=center_person_id, tree=tree)
+            try:
+                center_person = get_object_or_404(Person, pk=int(center_person_id), tree=tree)
+            except ValueError:
+                return JsonResponse({"error": "Некорректный ID персоны (center_person)"}, status=400)
         else:
             center_person = tree.persons.order_by("id").first()
             if not center_person:
@@ -68,7 +71,6 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
         nodes = []
         for p in persons_qs:
             full_name = f"{p['last_name'] or ''} {p['first_name'] or ''} {p['middle_name'] or ''}".strip()
-
             photo_url = f"/person/{p['pk']}/photo/" if p["photo"] else None
 
             nodes.append(
@@ -95,9 +97,7 @@ class TreeHierarchyAPI(LoginRequiredMixin, View):
         )
 
         for rel in relationships:
-            # Жестко нормализуем: нижний регистр + замена пробелов и дефисов на подчеркивания
             rel_type = str(rel["relationship_type"]).lower().replace("-", "_").replace(" ", "_")
-
             links.append(
                 {
                     "source": str(rel["from_person_id"]),
@@ -127,9 +127,11 @@ class TreeAncestorsAPI(LoginRequiredMixin, View):
 
         center_person_id = request.GET.get("center_person")
         if center_person_id:
-            center_person = get_object_or_404(Person, pk=center_person_id, tree=tree)
+            try:
+                center_person = get_object_or_404(Person, pk=int(center_person_id), tree=tree)
+            except ValueError:
+                return JsonResponse({"error": "Некорректный ID персоны (center_person)"}, status=400)
         else:
-            # По умолчанию центральная фигура — самая первая персона, созданная в дереве.
             center_person = tree.persons.order_by("id").first()
             if not center_person:
                 return JsonResponse({"center_person": None, "generations": []})
@@ -321,26 +323,27 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
                 try:
                     center = Person.objects.get(pk=int(center_id), tree=tree)
 
-                    # Разные параметры для разных режимов
                     if scope == "blood_only":
                         person_ids = get_kinship_network(
                             center_person=center,
-                            include_spouses=False,  # Только кровные
+                            include_spouses=False,
                             include_adoptive=True,
                             include_ex_spouses=False,
                         )
                     else:  # relatives
                         person_ids = get_kinship_network(
                             center_person=center,
-                            include_spouses=True,  # Кровные + супруги
+                            include_spouses=True,
                             include_adoptive=True,
                             include_ex_spouses=True,
                         )
 
                     persons = Person.objects.filter(pk__in=person_ids)
-                except Person.DoesNotExist:
-                    persons = tree.persons.all()
-                    person_ids = set(persons.values_list("pk", flat=True))
+                except (Person.DoesNotExist, ValueError):
+                    # 🔒 ИСПРАВЛЕНИЕ: перехватываем и несуществующий ID, и нечисловой формат
+                    return JsonResponse(
+                        {"error": "Некорректный или несуществующий ID персоны (center_person)"}, status=400
+                    )
             else:
                 persons = tree.persons.all()
                 person_ids = set(persons.values_list("pk", flat=True))
@@ -452,10 +455,9 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
 
         marriage_count = spouse_rels.count()
         marriage_durations = []
-        marriage_couples = []  # ← НОВОЕ: список для отладки
+        marriage_couples = []
 
         for rel in spouse_rels:
-            # Добавляем имена супругов в список (с годами для отладки)
             from_person_info = rel.from_person.full_name_display
             if rel.from_person.birth_date:
                 from_person_info += f" ({rel.from_person.birth_date.year}"
@@ -473,7 +475,6 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
             marriage_couples.append(f"{from_person_info} и {to_person_info}")
 
             if rel.start_date:
-                # 🔍 УМНЫЙ РАСЧЕТ: если нет даты развода, берем дату смерти первого умершего супруга
                 if rel.end_date:
                     end = rel.end_date
                 else:
@@ -484,25 +485,24 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
                         death_dates.append(rel.to_person.death_date)
 
                     if death_dates:
-                        end = min(death_dates)  # Берем дату смерти первого умершего
+                        end = min(death_dates)
                     else:
-                        end = today  # Оба живы — считаем до сегодня
+                        end = today
 
-                # Защита от некорректных данных (смерть до брака)
                 if end > rel.start_date:
                     duration = (end - rel.start_date).days / 365.25
                     marriage_durations.append(duration)
 
         stats["marriages"] = {
             "count": marriage_count,
-            "couples": marriage_couples,  # ← НОВОЕ: передаем список пар на фронтенд
+            "couples": marriage_couples,
             "avg_duration": round(sum(marriage_durations) / len(marriage_durations), 1) if marriage_durations else None,
             "max_duration": round(max(marriage_durations), 1) if marriage_durations else None,
             "min_duration": round(min(marriage_durations), 1) if marriage_durations else None,
             "divorces": spouse_rels.filter(end_date__isnull=False).count(),
         }
 
-        # === 8. СТАТИСТИКА ДЕТЕЙ (ОПТИМИЗИРОВАНО: 1 запрос вместо N) ===
+        # === 8. СТАТИСТИКА ДЕТЕЙ (ОПТИМИЗИРОВАНО) ===
         children_counts_dict = defaultdict(int)
         child_rels = (
             Relationship.objects.filter(
@@ -532,23 +532,3 @@ class TreeStatisticsAPI(LoginRequiredMixin, View):
         stats["children_distribution"] = dict(children_distribution)
 
         return JsonResponse(stats)
-
-    def _get_blood_relatives(self, tree, center_person_id):
-        """
-        Возвращает ID строго кровных родственников и их супругов.
-        Использует единый сервис kinship для консистентности.
-        """
-        from genealogy.utils.kinship import get_kinship_network
-
-        try:
-            center = Person.objects.get(pk=center_person_id, tree=tree)
-        except Person.DoesNotExist:
-            return set(tree.persons.values_list("pk", flat=True))
-
-        # Вызываем единый сервис с параметрами по умолчанию
-        return get_kinship_network(
-            center_person=center,
-            include_spouses=True,  # Включаем зятьёв, невесток, жён/мужей
-            include_adoptive=True,  # Включаем приёмных как кровных
-            include_ex_spouses=True,  # Включаем бывших супругов
-        )
