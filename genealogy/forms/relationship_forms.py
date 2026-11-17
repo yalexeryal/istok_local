@@ -79,10 +79,15 @@ class RelationshipForm(forms.ModelForm):
         relationship_type = cleaned_data.get("relationship_type")
 
         if from_person and to_person:
-            if from_person.tree != to_person.tree:
-                raise ValidationError("Обе персоны должны принадлежать одному дереву.")
-            if from_person == to_person:
+            # 1. Проверка на одно дерево
+            if from_person.tree_id != to_person.tree_id:
+                raise ValidationError("Обе персоны должны принадлежать одному и тому же дереву.")
+
+            # 2. Проверка на связь с самим собой
+            if from_person.pk == to_person.pk:
                 raise ValidationError("Нельзя создать связь персоны с самой собой.")
+
+            # 3. Проверка на дубликаты связей
             if relationship_type:
                 queryset = Relationship.objects.filter(
                     from_person=from_person, to_person=to_person, relationship_type=relationship_type
@@ -93,6 +98,16 @@ class RelationshipForm(forms.ModelForm):
                     raise ValidationError(
                         f'Такая связь уже существует между "{from_person.full_name_display}" и "{to_person.full_name_display}".'
                     )
+
+            # 4. 🔥 НОВОЕ: Проверка на циклы (вызываем логику модели для консистентности)
+            # Создаем временный экземпляр для проверки, чтобы не сохранять его
+            temp_rel = Relationship(from_person=from_person, to_person=to_person, relationship_type=relationship_type)
+            try:
+                temp_rel.clean()  # Это вызовет проверку циклов, которую мы добавили в модель
+            except ValidationError as e:
+                # Перехватываем ошибку о цикле и передаем её в форму
+                raise ValidationError(e.message) from None
+
         return cleaned_data
 
     def save(self, commit=True):

@@ -61,3 +61,54 @@ class Relationship(models.Model):
 
     def __str__(self) -> str:
         return f"{self.from_person} → {self.to_person} ({self.get_relationship_type_display()})"
+
+    def clean(self):
+        """
+        Валидация на уровне модели для обеспечения целостности связей.
+        """
+        from django.core.exceptions import ValidationError
+
+        from .enums import RelationshipTypeEnum
+
+        super().clean()
+
+        if self.from_person and self.to_person:
+            # 1. Запрет связи с самим собой
+            if self.from_person.pk == self.to_person.pk:
+                raise ValidationError("Нельзя создать связь персоны с самой собой.")
+
+            # 2. Запрет связей между разными деревьями
+            if self.from_person.tree_id != self.to_person.tree_id:
+                raise ValidationError("Обе персоны должны принадлежать одному и тому же дереву.")
+
+            # 3. Запрет циклов в родительских связях
+            parent_types = [
+                RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                RelationshipTypeEnum.ADOPTIVE_PARENT,
+                RelationshipTypeEnum.STEP_PARENT,
+            ]
+
+            if self.relationship_type in parent_types:
+                # Мы добавляем: from_person (родитель) -> to_person (ребенок).
+                # Цикл возникнет, если from_person УЖЕ является потомком to_person.
+                # Ищем всех предков from_person. Если среди них есть to_person, это цикл.
+                visited = set()
+                queue = [self.from_person]
+
+                while queue:
+                    current = queue.pop(0)
+                    if current.pk == self.to_person.pk:
+                        raise ValidationError(
+                            f"Невозможно создать связь: это создаст цикл в генеалогическом дереве. "
+                            f'"{self.from_person.full_name_display}" уже является потомком '
+                            f'"{self.to_person.full_name_display}".'
+                        )
+
+                    if current.pk in visited:
+                        continue
+                    visited.add(current.pk)
+
+                    # Находим родителей текущей персоны
+                    parent_rels = Relationship.objects.filter(to_person=current, relationship_type__in=parent_types)
+                    for rel in parent_rels:
+                        queue.append(rel.from_person)
