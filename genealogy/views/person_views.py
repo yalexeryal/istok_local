@@ -3,6 +3,7 @@ Views для работы с персонами.
 """
 
 import io
+import logging
 import os
 
 from django.conf import settings
@@ -18,6 +19,8 @@ from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from xhtml2pdf import pisa
+
+logger = logging.getLogger(__name__)
 
 from genealogy.forms import PersonForm
 from genealogy.models import (
@@ -920,10 +923,11 @@ class PersonPDFView(LoginRequiredMixin, DetailView):
                 "Times-Roman", normal="ArialCyr", bold="ArialCyr", italic="ArialCyr", boldItalic="ArialCyr"
             )
 
-            print(f"✅ Шрифт загружен и стандартные шрифты PDF подменены: {font_path}")
+            logger.info("Шрифт загружен и стандартные шрифты PDF подменены: %s", font_path)
         except Exception as e:
-            print(f"❌ ОШИБКА: Не удалось загрузить шрифт. Проверьте, что файл лежит здесь: {font_path}")
-            print(f"Текст ошибки: {e}")
+            logger.exception(
+                "Не удалось загрузить шрифт. Проверьте, что файл лежит здесь: %s", font_path,
+            )
         # =================================================
 
         # Получаем контекст

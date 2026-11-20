@@ -3,25 +3,43 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
-*.egg-info/
-dist/
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
 *.egg
 
 # === Виртуальное окружение ===
 venv/
 .venv/
 env/
+ENV/
 
 # === Django ===
 *.db
 *.sqlite3
+*.sqlite3-journal
 db.sqlite3
 istok_local.db
+staticfiles/
+
+# === Media (сохранять .gitkeep) ===
 media/*
 !media/
 !media/.gitkeep
-staticfiles/
+
+# === Static (сохранять .gitkeep) ===
 static/*
 !static/
 !static/.gitkeep
@@ -33,7 +51,7 @@ static/*
 *.swo
 *~
 
-# === ОС ===
+# === OS ===
 .DS_Store
 Thumbs.db
 desktop.ini
@@ -49,40 +67,16 @@ htmlcov/
 # === Секреты ===
 .env
 .env.local
+.env.*.local
 
 # Ruff
 .ruff_cache/
+.tox/
+
 # Экспорт/импорт файлы
 *.zip
 *.ged
 *.gedcom
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-ENV/
-
-# Django
-*.sqlite3
-*.sqlite3-journal
-db.sqlite3
-media/
-staticfiles/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
 
 # Pre-commit cache
 .pre-commit/

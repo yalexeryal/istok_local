@@ -152,28 +152,18 @@ class LifeEventDeleteView(LoginRequiredMixin, DeleteView):
     def delete(self, request, *args, **kwargs):
         self.object = self.get_object()
 
-        def delete(self, request, *args, **kwargs):
-            self.object = self.get_object()
+        # === ЛОГИРОВАНИЕ: удаление события ===
+        from genealogy.utils.audit import get_client_ip, log_action
 
-            # === ЛОГИРОВАНИЕ: удаление события ===
-            from genealogy.utils.audit import get_client_ip, log_action
-
-            log_action(
-                tree=self.tree,
-                user=request.user,
-                action="DELETE",
-                entity_type="EVENT",
-                entity_id=self.object.pk,
-                entity_name=f"{self.object.get_event_type_display()} для {self.person.full_name_display}",
-                ip_address=get_client_ip(request),
-            )
-
-            response = super().delete(request, *args, **kwargs)
-            messages.success(
-                request,
-                f'Событие "{self.object.get_event_type_display()}" успешно удалено.',
-            )
-            return response
+        log_action(
+            tree=self.tree,
+            user=request.user,
+            action="DELETE",
+            entity_type="EVENT",
+            entity_id=self.object.pk,
+            entity_name=f"{self.object.get_event_type_display()} для {self.person.full_name_display}",
+            ip_address=get_client_ip(request),
+        )
 
         response = super().delete(request, *args, **kwargs)
         messages.success(

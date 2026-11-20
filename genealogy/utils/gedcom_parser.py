@@ -3,7 +3,10 @@
 Не зависит от внешних библиотек — читает файл напрямую.
 """
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 
 def parse_date(gedcom_date: str) -> str | None:
@@ -270,9 +273,9 @@ def _parse_individual_record(lines: list) -> dict | None:
         last_name = ""
         maiden_name = ""
 
-    # 🔍 ВРЕМЕННАЯ ОТЛАДКА: вы увидите это в консоли сервера, чтобы убедиться, что код работает
-    print(
-        f"✅ DEBUG: ID={pointer} | Имя={raw_first_name} | SURN={raw_surn} | MARNM={raw_marnm} -> ИТОГ: Фамилия='{last_name}', Девичья='{maiden_name}'"
+    logger.debug(
+        "GEDCOM parse: ID=%s | Name=%s | SURN=%s | MARNM=%s -> SURN='%s', MAIDEN='%s'",
+        pointer, raw_first_name, raw_surn, raw_marnm, last_name, maiden_name,
     )
 
     if not raw_first_name and not last_name and not maiden_name:
