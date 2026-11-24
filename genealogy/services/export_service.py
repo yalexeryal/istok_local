@@ -485,11 +485,10 @@ class ExportService:
             if privacy_settings.hide_photos and degree > privacy_settings.full_data_min_degree:
                 data["photo"] = None
                 data["gallery"] = []
-            elif degree > privacy_settings.full_data_min_degree:
+            elif degree > privacy_settings.full_data_min_degree and data["birth_date"]:
                 # Для дальних родственников — только год
-                if data["birth_date"]:
-                    data["birth_date"] = data["birth_date"][:4] + "-01-01"
-                    data["is_birth_date_approx"] = True
+                data["birth_date"] = data["birth_date"][:4] + "-01-01"
+                data["is_birth_date_approx"] = True
 
             if privacy_settings.hide_death_date:
                 data["death_date"] = None

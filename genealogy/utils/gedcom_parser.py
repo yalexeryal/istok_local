@@ -253,9 +253,8 @@ def _parse_individual_record(lines: list) -> dict | None:
                         burial_place = sub_value
                     j += 1
 
-            elif tag == "NOTE":
-                if value:
-                    notes += value + "\n"
+            elif tag == "NOTE" and value:
+                notes += value + "\n"
 
         i += 1
 
@@ -275,7 +274,12 @@ def _parse_individual_record(lines: list) -> dict | None:
 
     logger.debug(
         "GEDCOM parse: ID=%s | Name=%s | SURN=%s | MARNM=%s -> SURN='%s', MAIDEN='%s'",
-        pointer, raw_first_name, raw_surn, raw_marnm, last_name, maiden_name,
+        pointer,
+        raw_first_name,
+        raw_surn,
+        raw_marnm,
+        last_name,
+        maiden_name,
     )
 
     if not raw_first_name and not last_name and not maiden_name:
