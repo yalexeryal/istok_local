@@ -10,7 +10,6 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import redirect_to_login
-from django.db.models import Q
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -20,41 +19,20 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from xhtml2pdf import pisa
 
-logger = logging.getLogger(__name__)
-
 from genealogy.forms import PersonForm
-from genealogy.models import (
-    EventTypeEnum,
-    LifeEvent,
-    Person,
-    PersonPhoto,
-    Relationship,
-    RelationshipTypeEnum,
-    Tree,
+from genealogy.models import Person, PersonPhoto, Tree
+from genealogy.services.person_service import (
+    _get_current_spouse,
+    create_child_relationship,
+    create_parent_for_child_relationship,
+    create_parent_relationship,
+    create_spouse_relationship,
 )
+from genealogy.utils.audit import get_client_ip, log_action
 from genealogy.utils.names import decline_lastname, generate_patronymic
+from genealogy.utils.relatives import get_close_relatives, get_close_relatives_for_pdf
 
-
-def _get_current_spouse(person: Person) -> Person | None:
-    """Возвращает текущего супруга персоны по приоритету."""
-    spouse_rel = Relationship.objects.filter(
-        Q(from_person=person, relationship_type=RelationshipTypeEnum.SPOUSE, is_current=True)
-        | Q(to_person=person, relationship_type=RelationshipTypeEnum.SPOUSE, is_current=True)
-    ).first()
-
-    if spouse_rel:
-        return spouse_rel.to_person if spouse_rel.from_person == person else spouse_rel.from_person
-
-    fiance_rel = Relationship.objects.filter(
-        Q(from_person=person, relationship_type=RelationshipTypeEnum.FIANCE)
-        | Q(to_person=person, relationship_type=RelationshipTypeEnum.FIANCE)
-    ).first()
-
-    if fiance_rel:
-        return fiance_rel.to_person if fiance_rel.from_person == person else fiance_rel.from_person
-
-    return None
-
+logger = logging.getLogger(__name__)
 
 RELATION_LABELS = {
     "son": "сын",
@@ -192,7 +170,6 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
         person = self.object
 
         # === ЛОГИРОВАНИЕ: создание персоны ===
-        from genealogy.utils.audit import get_client_ip, log_action
 
         log_action(
             tree=self.tree,
@@ -204,163 +181,50 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
             ip_address=get_client_ip(self.request),
         )
 
-        if self.parent1 and self.relation in ["son", "daughter", "adopted_son", "adopted_daughter"]:
-            is_biological = self.relation in ["son", "daughter"]
-            rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT if is_biological else RelationshipTypeEnum.ADOPTIVE_PARENT
-
-            rel, created = Relationship.objects.get_or_create(
-                from_person=self.parent1,
-                to_person=person,
-                relationship_type=rel_type,
-                defaults={"created_by": self.request.user},
+        # === Создание связей через сервисный слой ===
+        if self.parent1 and self.relation in ("son", "daughter", "adopted_son", "adopted_daughter"):
+            result = create_child_relationship(
+                parent=self.parent1,
+                child=person,
+                relation_type=self.relation,
+                tree=self.tree,
+                user=self.request.user,
+                request=self.request,
             )
-
-            # === ЛОГИРОВАНИЕ: создание связи (ребенок) ===
-            if created:
-                log_action(
-                    tree=self.tree,
-                    user=self.request.user,
-                    action="CREATE",
-                    entity_type="RELATIONSHIP",
-                    entity_id=rel.pk,
-                    entity_name=f"{self.parent1.full_name_display} → {person.full_name_display}",
-                    details={"type": rel.get_relationship_type_display()},
-                    ip_address=get_client_ip(self.request),
-                )
-
-            father = form.cleaned_data.get("father")
-            mother = form.cleaned_data.get("mother")
-
-            for parent in [father, mother]:
-                if parent and parent != self.parent1:
-                    rel, created = Relationship.objects.get_or_create(
-                        from_person=parent,
-                        to_person=person,
-                        relationship_type=rel_type,
-                        defaults={"created_by": self.request.user},
-                    )
-
-                    # === ЛОГИРОВАНИЕ: создание связи (второй родитель) ===
-                    if created:
-                        log_action(
-                            tree=self.tree,
-                            user=self.request.user,
-                            action="CREATE",
-                            entity_type="RELATIONSHIP",
-                            entity_id=rel.pk,
-                            entity_name=f"{parent.full_name_display} → {person.full_name_display}",
-                            details={"type": rel.get_relationship_type_display()},
-                            ip_address=get_client_ip(self.request),
-                        )
-
-            if person.birth_date:
-                all_parents = [self.parent1]
-                if father and father != self.parent1:
-                    all_parents.append(father)
-                if mother and mother != self.parent1:
-                    all_parents.append(mother)
-
-                for parent in all_parents:
-                    LifeEvent.objects.get_or_create(
-                        person=parent,
-                        event_type=EventTypeEnum.BIRTH_OF_CHILD,
-                        event_date=person.birth_date,
-                        related_person=person,
-                        defaults={
-                            "location": person.birth_place,
-                            "description": f"Рождение {'сына' if person.gender == 'male' else 'дочери'}: {person.full_name_display}",
-                            "created_by": self.request.user,
-                        },
-                    )
-
-            messages.success(self.request, f'Ребенок "{person.full_name_display}" успешно создан.')
+            messages.success(self.request, result.message)
 
         elif self.spouse_of:
-            marriage_date = self.request.POST.get("marriage_date")
-            marriage_place = self.request.POST.get("marriage_place")
-
-            rel, created = Relationship.objects.get_or_create(
-                from_person=self.spouse_of,
-                to_person=person,
-                relationship_type=RelationshipTypeEnum.SPOUSE,
-                defaults={"created_by": self.request.user, "is_current": True, "start_date": marriage_date or None},
+            result = create_spouse_relationship(
+                person_a=self.spouse_of,
+                person_b=person,
+                marriage_date=self.request.POST.get("marriage_date"),
+                marriage_place=self.request.POST.get("marriage_place"),
+                tree=self.tree,
+                user=self.request.user,
+                request=self.request,
             )
+            messages.success(self.request, result.message)
 
-            # === ЛОГИРОВАНИЕ: создание связи (супруг) ===
-            if created:
-                log_action(
-                    tree=self.tree,
-                    user=self.request.user,
-                    action="CREATE",
-                    entity_type="RELATIONSHIP",
-                    entity_id=rel.pk,
-                    entity_name=f"{self.spouse_of.full_name_display} → {person.full_name_display}",
-                    details={"type": rel.get_relationship_type_display()},
-                    ip_address=get_client_ip(self.request),
-                )
-
-            for spouse in [self.spouse_of, person]:
-                related = person if spouse == self.spouse_of else self.spouse_of
-
-                LifeEvent.objects.get_or_create(
-                    person=spouse,
-                    event_type=EventTypeEnum.MARRIAGE,
-                    event_date=marriage_date or None,
-                    related_person=related,
-                    defaults={
-                        "location": marriage_place or "",
-                        "description": f"Брак с {related.full_name_display}",
-                        "created_by": self.request.user,
-                    },
-                )
-
-            messages.success(self.request, f'Супруг(а) "{person.full_name_display}" успешно создан(а).')
-
-        elif self.parent1 and self.relation in ["father", "mother"]:
-            rel, created = Relationship.objects.get_or_create(
-                from_person=person,
-                to_person=self.parent1,
-                relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                defaults={"created_by": self.request.user},
+        elif self.parent1 and self.relation in ("father", "mother"):
+            result = create_parent_relationship(
+                child=self.parent1,
+                new_parent=person,
+                relation_type=self.relation,
+                tree=self.tree,
+                user=self.request.user,
+                request=self.request,
             )
-
-            # === ЛОГИРОВАНИЕ: создание связи (родитель) ===
-            if created:
-                log_action(
-                    tree=self.tree,
-                    user=self.request.user,
-                    action="CREATE",
-                    entity_type="RELATIONSHIP",
-                    entity_id=rel.pk,
-                    entity_name=f"{person.full_name_display} → {self.parent1.full_name_display}",
-                    details={"type": rel.get_relationship_type_display()},
-                    ip_address=get_client_ip(self.request),
-                )
-
-            messages.success(self.request, f'Родитель "{person.full_name_display}" успешно создан.')
+            messages.success(self.request, result.message)
 
         elif self.child:
-            rel, created = Relationship.objects.get_or_create(
-                from_person=person,
-                to_person=self.child,
-                relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                defaults={"created_by": self.request.user},
+            result = create_parent_for_child_relationship(
+                new_parent=person,
+                child=self.child,
+                tree=self.tree,
+                user=self.request.user,
+                request=self.request,
             )
-
-            # === ЛОГИРОВАНИЕ: создание связи (родитель для ребенка) ===
-            if created:
-                log_action(
-                    tree=self.tree,
-                    user=self.request.user,
-                    action="CREATE",
-                    entity_type="RELATIONSHIP",
-                    entity_id=rel.pk,
-                    entity_name=f"{person.full_name_display} → {self.child.full_name_display}",
-                    details={"type": rel.get_relationship_type_display()},
-                    ip_address=get_client_ip(self.request),
-                )
-
-            messages.success(self.request, f'Родитель "{person.full_name_display}" успешно создан.')
+            messages.success(self.request, result.message)
 
         else:
             messages.success(self.request, f'Персона "{person.full_name_display}" успешно создана.')
@@ -419,7 +283,6 @@ class PersonUpdateView(LoginRequiredMixin, UpdateView):
         response = super().form_valid(form)
 
         # === ЛОГИРОВАНИЕ: редактирование персоны ===
-        from genealogy.utils.audit import get_client_ip, log_action
 
         log_action(
             tree=self.tree,
@@ -462,7 +325,6 @@ class PersonDeleteView(LoginRequiredMixin, DeleteView):
         self.object = self.get_object()
 
         # === ЛОГИРОВАНИЕ: удаление персоны ===
-        from genealogy.utils.audit import get_client_ip, log_action
 
         log_action(
             tree=self.tree,
@@ -523,99 +385,11 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
             else ("Администратор" if self.request.user.is_superuser else "Гость")
         )
 
-        close_relatives = []
-        context["father"] = None
-        context["mother"] = None
-
-        # Мы используем уже предвыбранные (prefetched) связи.
-        # Это гарантирует, что мы работаем с реальными объектами Person, а не словарями.
-
-        # === 1. РОДИТЕЛИ (текущая персона - это 'to_person', родитель - 'from_person') ===
-        for rel in person.relationships_to.all():
-            if rel.relationship_type in [
-                RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                RelationshipTypeEnum.ADOPTIVE_PARENT,
-                RelationshipTypeEnum.STEP_PARENT,
-            ]:
-                parent = rel.from_person
-                if not parent:
-                    continue
-
-                gender = parent.gender
-                if rel.relationship_type == RelationshipTypeEnum.BIOLOGICAL_PARENT:
-                    rel_type = "Отец (Родной)" if gender == "male" else "Мать (Родная)"
-                elif rel.relationship_type == RelationshipTypeEnum.ADOPTIVE_PARENT:
-                    rel_type = "Отец (Приемный)" if gender == "male" else "Мать (Приемная)"
-                else:
-                    rel_type = "Отчим" if gender == "male" else "Мачеха"
-
-                close_relatives.append({"person": parent, "relation": rel_type, "rel_obj": rel})
-                if gender == "male":
-                    context["father"] = parent
-                else:
-                    context["mother"] = parent
-
-        # === 2. ДЕТИ (текущая персона - это 'from_person', ребенок - 'to_person') ===
-        for rel in person.relationships_from.all():
-            if rel.relationship_type in [
-                RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                RelationshipTypeEnum.ADOPTIVE_PARENT,
-            ]:
-                child = rel.to_person
-                if not child:
-                    continue
-                gender = child.gender
-                rel_type = "Сын" if gender == "male" else "Дочь"
-                close_relatives.append({"person": child, "relation": rel_type, "rel_obj": rel})
-
-        # === 3. СУПРУГИ (могут быть и в from, и в to) ===
-        added_spouse_ids = set()  # Чтобы избежать дубликатов
-
-        for rel in person.relationships_from.all():
-            if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
-                spouse = rel.to_person
-                if spouse and spouse.pk not in added_spouse_ids:
-                    # Проверяем, есть ли дата окончания (развод)
-                    if rel.end_date:
-                        rel_type = "Бывшая жена" if spouse.gender == "female" else "Бывший муж"
-                    else:
-                        rel_type = "Жена" if spouse.gender == "female" else "Муж"
-                    close_relatives.append({"person": spouse, "relation": rel_type, "rel_obj": rel})
-                    added_spouse_ids.add(spouse.pk)
-
-        for rel in person.relationships_to.all():
-            if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
-                spouse = rel.from_person
-                if spouse and spouse.pk not in added_spouse_ids:
-                    # Проверяем, есть ли дата окончания (развод)
-                    if rel.end_date:
-                        rel_type = "Бывшая жена" if spouse.gender == "female" else "Бывший муж"
-                    else:
-                        rel_type = "Жена" if spouse.gender == "female" else "Муж"
-                    close_relatives.append({"person": spouse, "relation": rel_type, "rel_obj": rel})
-                    added_spouse_ids.add(spouse.pk)
-
-        # === 4. БРАТЬЯ И СЕСТРЫ (те, у кого есть общий родитель с текущей персоной) ===
-        sibling_ids = set()
-        for rel in person.relationships_to.all():
-            if rel.relationship_type in [
-                RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                RelationshipTypeEnum.ADOPTIVE_PARENT,
-            ]:
-                parent = rel.from_person
-                # Находим всех других детей этого же родителя
-                for child_rel in parent.relationships_from.all():
-                    if child_rel.relationship_type in [
-                        RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                        RelationshipTypeEnum.ADOPTIVE_PARENT,
-                    ]:
-                        sibling = child_rel.to_person
-                        if sibling and sibling.pk != person.pk and sibling.pk not in sibling_ids:
-                            sibling_ids.add(sibling.pk)
-                            rel_type = "Брат" if sibling.gender == "male" else "Сестра"
-                            close_relatives.append({"person": sibling, "relation": rel_type})
-
+        # 4. Близкие родственники — извлечено в utils.relatives
+        close_relatives, father, mother = get_close_relatives(person)
         context["close_relatives"] = close_relatives
+        context["father"] = father
+        context["mother"] = mother
 
         return context
 
@@ -664,8 +438,6 @@ class LinkRelativeView(LoginRequiredMixin, View):
         return render(request, "genealogy/link_relative.html", context)
 
     def post(self, request, *args, **kwargs):
-        from genealogy.utils.audit import get_client_ip, log_action
-
         selected_person_id = request.POST.get("selected_person")
 
         if not selected_person_id:
@@ -674,105 +446,37 @@ class LinkRelativeView(LoginRequiredMixin, View):
 
         selected_person = get_object_or_404(Person, pk=selected_person_id)
 
-        if self.relation in ["son", "daughter", "adopted_son", "adopted_daughter"]:
-            is_biological = self.relation in ["son", "daughter"]
-            rel_type = RelationshipTypeEnum.BIOLOGICAL_PARENT if is_biological else RelationshipTypeEnum.ADOPTIVE_PARENT
-
-            rel, created = Relationship.objects.get_or_create(
-                from_person=self.parent1,
-                to_person=selected_person,
-                relationship_type=rel_type,
-                defaults={"created_by": request.user},
+        if self.relation in ("son", "daughter", "adopted_son", "adopted_daughter"):
+            result = create_child_relationship(
+                parent=self.parent1,
+                child=selected_person,
+                relation_type=self.relation,
+                tree=self.tree,
+                user=request.user,
+                request=request,
             )
+            messages.success(request, result.message)
 
-            # === ЛОГИРОВАНИЕ: создание связи ===
-            if created:
-                log_action(
-                    tree=self.tree,
-                    user=request.user,
-                    action="CREATE",
-                    entity_type="RELATIONSHIP",
-                    entity_id=rel.pk,
-                    entity_name=f"{self.parent1.full_name_display} → {selected_person.full_name_display}",
-                    details={"type": rel.get_relationship_type_display()},
-                    ip_address=get_client_ip(request),
-                )
-
-            spouse = _get_current_spouse(self.parent1)
-            if spouse:
-                rel2, created2 = Relationship.objects.get_or_create(
-                    from_person=spouse,
-                    to_person=selected_person,
-                    relationship_type=rel_type,
-                    defaults={"created_by": request.user},
-                )
-
-                # === ЛОГИРОВАНИЕ: создание связи (супруг родителя) ===
-                if created2:
-                    log_action(
-                        tree=self.tree,
-                        user=request.user,
-                        action="CREATE",
-                        entity_type="RELATIONSHIP",
-                        entity_id=rel2.pk,
-                        entity_name=f"{spouse.full_name_display} → {selected_person.full_name_display}",
-                        details={"type": rel2.get_relationship_type_display()},
-                        ip_address=get_client_ip(request),
-                    )
-
-            messages.success(
-                request,
-                f'Персона "{selected_person.full_name_display}" успешно добавлена как {RELATION_LABELS.get(self.relation, "родственник")}.',
+        elif self.relation in ("father", "mother"):
+            result = create_parent_relationship(
+                child=self.parent1,
+                new_parent=selected_person,
+                relation_type=self.relation,
+                tree=self.tree,
+                user=request.user,
+                request=request,
             )
-
-        elif self.relation in ["father", "mother"]:
-            rel, created = Relationship.objects.get_or_create(
-                from_person=selected_person,
-                to_person=self.parent1,
-                relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                defaults={"created_by": request.user},
-            )
-
-            # === ЛОГИРОВАНИЕ: создание связи ===
-            if created:
-                log_action(
-                    tree=self.tree,
-                    user=request.user,
-                    action="CREATE",
-                    entity_type="RELATIONSHIP",
-                    entity_id=rel.pk,
-                    entity_name=f"{selected_person.full_name_display} → {self.parent1.full_name_display}",
-                    details={"type": rel.get_relationship_type_display()},
-                    ip_address=get_client_ip(request),
-                )
-
-            messages.success(
-                request,
-                f'Персона "{selected_person.full_name_display}" успешно добавлена как {RELATION_LABELS.get(self.relation, "родственник")}.',
-            )
+            messages.success(request, result.message)
 
         elif self.relation == "spouse":
-            rel, created = Relationship.objects.get_or_create(
-                from_person=self.parent1,
-                to_person=selected_person,
-                relationship_type=RelationshipTypeEnum.SPOUSE,
-                defaults={"created_by": request.user, "is_current": True},
+            result = create_spouse_relationship(
+                person_a=self.parent1,
+                person_b=selected_person,
+                tree=self.tree,
+                user=request.user,
+                request=request,
             )
-
-            # === ЛОГИРОВАНИЕ: создание связи ===
-            if created:
-                log_action(
-                    tree=self.tree,
-                    user=request.user,
-                    action="CREATE",
-                    entity_type="RELATIONSHIP",
-                    entity_id=rel.pk,
-                    entity_name=f"{self.parent1.full_name_display} → {selected_person.full_name_display}",
-                    details={"type": rel.get_relationship_type_display()},
-                    ip_address=get_client_ip(request),
-                )
-
-            messages.success(request, f'Персона "{selected_person.full_name_display}" успешно добавлена как супруг(а).')
+            messages.success(request, result.message)
 
         return redirect("genealogy:person_detail", pk=self.parent1.pk)
 
@@ -803,7 +507,6 @@ class PersonPhotoUploadView(LoginRequiredMixin, View):
         photo = PersonPhoto.objects.create(person=person, image=image, caption=caption, is_primary=is_primary)
 
         # === ЛОГИРОВАНИЕ: загрузка фото ===
-        from genealogy.utils.audit import get_client_ip, log_action
 
         log_action(
             tree=person.tree,
@@ -839,7 +542,6 @@ class PersonPhotoDeleteView(LoginRequiredMixin, View):
             photo.person.save()
 
         # === ЛОГИРОВАНИЕ: удаление фото ===
-        from genealogy.utils.audit import get_client_ip, log_action
 
         log_action(
             tree=photo.person.tree,
@@ -924,7 +626,7 @@ class PersonPDFView(LoginRequiredMixin, DetailView):
             )
 
             logger.info("Шрифт загружен и стандартные шрифты PDF подменены: %s", font_path)
-        except Exception as e:
+        except Exception:
             logger.exception(
                 "Не удалось загрузить шрифт. Проверьте, что файл лежит здесь: %s", font_path,
             )
@@ -963,7 +665,6 @@ class PersonPDFView(LoginRequiredMixin, DetailView):
             return redirect("genealogy:person_detail", pk=self.object.pk)
 
         # Логируем действие
-        from genealogy.utils.audit import get_client_ip, log_action
 
         log_action(
             tree=self.object.tree,
@@ -1013,83 +714,6 @@ class PersonPDFView(LoginRequiredMixin, DetailView):
         context["combined_timeline"] = person.get_combined_timeline()
         context["can_edit"] = tree.user_can_edit(self.request.user)
 
-        # Блок родственников (копируем из PersonDetailView)
-        close_relatives = []
-
-        # Родители
-        for rel in person.relationships_to.all():
-            if rel.relationship_type in [
-                RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                RelationshipTypeEnum.ADOPTIVE_PARENT,
-                RelationshipTypeEnum.STEP_PARENT,
-            ]:
-                parent = rel.from_person
-                if not parent:
-                    continue
-                gender = parent.gender
-                if rel.relationship_type == RelationshipTypeEnum.BIOLOGICAL_PARENT:
-                    rel_type = "Отец (Родной)" if gender == "male" else "Мать (Родная)"
-                elif rel.relationship_type == RelationshipTypeEnum.ADOPTIVE_PARENT:
-                    rel_type = "Отец (Приемный)" if gender == "male" else "Мать (Приемная)"
-                else:
-                    rel_type = "Отчим" if gender == "male" else "Мачеха"
-                close_relatives.append({"person": parent, "relation": rel_type})
-
-        # Дети
-        for rel in person.relationships_from.all():
-            if rel.relationship_type in [
-                RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                RelationshipTypeEnum.ADOPTIVE_PARENT,
-            ]:
-                child = rel.to_person
-                if not child:
-                    continue
-                gender = child.gender
-                rel_type = "Сын" if gender == "male" else "Дочь"
-                close_relatives.append({"person": child, "relation": rel_type})
-
-        # Супруги
-        added_spouse_ids = set()
-        for rel in person.relationships_from.all():
-            if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
-                spouse = rel.to_person
-                if spouse and spouse.pk not in added_spouse_ids:
-                    if rel.end_date:
-                        rel_type = "Бывшая жена" if spouse.gender == "female" else "Бывший муж"
-                    else:
-                        rel_type = "Жена" if spouse.gender == "female" else "Муж"
-                    close_relatives.append({"person": spouse, "relation": rel_type})
-                    added_spouse_ids.add(spouse.pk)
-
-        for rel in person.relationships_to.all():
-            if rel.relationship_type == RelationshipTypeEnum.SPOUSE:
-                spouse = rel.from_person
-                if spouse and spouse.pk not in added_spouse_ids:
-                    if rel.end_date:
-                        rel_type = "Бывшая жена" if spouse.gender == "female" else "Бывший муж"
-                    else:
-                        rel_type = "Жена" if spouse.gender == "female" else "Муж"
-                    close_relatives.append({"person": spouse, "relation": rel_type})
-                    added_spouse_ids.add(spouse.pk)
-
-        # Братья и сёстры
-        sibling_ids = set()
-        for rel in person.relationships_to.all():
-            if rel.relationship_type in [
-                RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                RelationshipTypeEnum.ADOPTIVE_PARENT,
-            ]:
-                parent = rel.from_person
-                for child_rel in parent.relationships_from.all():
-                    if child_rel.relationship_type in [
-                        RelationshipTypeEnum.BIOLOGICAL_PARENT,
-                        RelationshipTypeEnum.ADOPTIVE_PARENT,
-                    ]:
-                        sibling = child_rel.to_person
-                        if sibling and sibling.pk != person.pk and sibling.pk not in sibling_ids:
-                            sibling_ids.add(sibling.pk)
-                            rel_type = "Брат" if sibling.gender == "male" else "Сестра"
-                            close_relatives.append({"person": sibling, "relation": rel_type})
-
-        context["close_relatives"] = close_relatives
+        # Блок родственников — упрощённая версия для PDF (без rel_obj)
+        context["close_relatives"] = get_close_relatives_for_pdf(person)
         return context
