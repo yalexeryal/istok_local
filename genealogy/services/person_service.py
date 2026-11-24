@@ -8,6 +8,7 @@
 import logging
 from dataclasses import dataclass
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 
@@ -25,6 +26,20 @@ class PersonLinkResult:
     message: str
     relationship: Relationship | None = None
     created_events: int = 0
+    errors: list[str] | None = None
+
+
+def _flatten_validation_error(e: ValidationError) -> list[str]:
+    """Разворачивает ValidationError в список человеко-читаемых сообщений."""
+    messages: list[str] = []
+    if hasattr(e, "message_dict"):
+        for field_msgs in e.message_dict.values():
+            messages.extend(field_msgs)
+    elif isinstance(e.messages, list):
+        messages.extend(e.messages)
+    else:
+        messages.append(str(e))
+    return messages
 
 
 def _get_current_spouse(person: Person) -> Person | None:
@@ -107,30 +122,37 @@ def create_child_relationship(
     is_biological = relation_type in ("son", "daughter")
     rel_enum = RelationshipTypeEnum.BIOLOGICAL_PARENT if is_biological else RelationshipTypeEnum.ADOPTIVE_PARENT
 
-    with transaction.atomic():
-        rel, created = Relationship.objects.get_or_create(
-            from_person=parent,
-            to_person=child,
-            relationship_type=rel_enum,
-            defaults={"created_by": user},
-        )
-        if created:
-            _log_relationship(tree, user, rel, "CREATE", parent, child, request)
-
-        spouse = _get_current_spouse(parent)
-        if spouse:
-            rel2, created2 = Relationship.objects.get_or_create(
-                from_person=spouse,
+    try:
+        with transaction.atomic():
+            rel, created = Relationship.objects.get_or_create(
+                from_person=parent,
                 to_person=child,
                 relationship_type=rel_enum,
                 defaults={"created_by": user},
             )
-            if created2:
-                _log_relationship(tree, user, rel2, "CREATE", spouse, child, request)
+            if created:
+                _log_relationship(tree, user, rel, "CREATE", parent, child, request)
 
-        events = _create_birth_of_child_events(parent, child, user, request)
-        if spouse:
-            events += _create_birth_of_child_events(spouse, child, user, request)
+            spouse = _get_current_spouse(parent)
+            if spouse:
+                rel2, created2 = Relationship.objects.get_or_create(
+                    from_person=spouse,
+                    to_person=child,
+                    relationship_type=rel_enum,
+                    defaults={"created_by": user},
+                )
+                if created2:
+                    _log_relationship(tree, user, rel2, "CREATE", spouse, child, request)
+
+            events = _create_birth_of_child_events(parent, child, user, request)
+            if spouse:
+                events += _create_birth_of_child_events(spouse, child, user, request)
+    except ValidationError as e:
+        return PersonLinkResult(
+            success=False,
+            message="Не удалось создать связь.",
+            errors=_flatten_validation_error(e),
+        )
 
     return PersonLinkResult(
         success=True,
@@ -153,15 +175,22 @@ def create_parent_relationship(
 
     Пример: создаём отца → new_parent→child с BIOLOGICAL_PARENT.
     """
-    with transaction.atomic():
-        rel, created = Relationship.objects.get_or_create(
-            from_person=new_parent,
-            to_person=child,
-            relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
-            defaults={"created_by": user},
+    try:
+        with transaction.atomic():
+            rel, created = Relationship.objects.get_or_create(
+                from_person=new_parent,
+                to_person=child,
+                relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                defaults={"created_by": user},
+            )
+            if created:
+                _log_relationship(tree, user, rel, "CREATE", new_parent, child, request)
+    except ValidationError as e:
+        return PersonLinkResult(
+            success=False,
+            message="Не удалось создать связь.",
+            errors=_flatten_validation_error(e),
         )
-        if created:
-            _log_relationship(tree, user, rel, "CREATE", new_parent, child, request)
 
     return PersonLinkResult(
         success=True,
@@ -182,28 +211,35 @@ def create_spouse_relationship(
     """
     Создаёт связь супруги + автоматическое событие МАРРИДЖ.
     """
-    with transaction.atomic():
-        rel, created = Relationship.objects.get_or_create(
-            from_person=person_a,
-            to_person=person_b,
-            relationship_type=RelationshipTypeEnum.SPOUSE,
-            defaults={"created_by": user, "is_current": True, "start_date": marriage_date or None},
-        )
-        if created:
-            _log_relationship(tree, user, rel, "CREATE", person_a, person_b, request)
-
-        for spouse, related in [(person_a, person_b), (person_b, person_a)]:
-            LifeEvent.objects.get_or_create(
-                person=spouse,
-                event_type=EventTypeEnum.MARRIAGE,
-                event_date=marriage_date or None,
-                related_person=related,
-                defaults={
-                    "location": marriage_place or "",
-                    "description": f"Брак с {related.full_name_display}",
-                    "created_by": user,
-                },
+    try:
+        with transaction.atomic():
+            rel, created = Relationship.objects.get_or_create(
+                from_person=person_a,
+                to_person=person_b,
+                relationship_type=RelationshipTypeEnum.SPOUSE,
+                defaults={"created_by": user, "is_current": True, "start_date": marriage_date or None},
             )
+            if created:
+                _log_relationship(tree, user, rel, "CREATE", person_a, person_b, request)
+
+            for spouse, related in [(person_a, person_b), (person_b, person_a)]:
+                LifeEvent.objects.get_or_create(
+                    person=spouse,
+                    event_type=EventTypeEnum.MARRIAGE,
+                    event_date=marriage_date or None,
+                    related_person=related,
+                    defaults={
+                        "location": marriage_place or "",
+                        "description": f"Брак с {related.full_name_display}",
+                        "created_by": user,
+                    },
+                )
+    except ValidationError as e:
+        return PersonLinkResult(
+            success=False,
+            message="Не удалось создать связь.",
+            errors=_flatten_validation_error(e),
+        )
 
     return PersonLinkResult(
         success=True,
@@ -222,15 +258,22 @@ def create_parent_for_child_relationship(
     """
     Создаёт связь когда создаём родителя от лица уже созданного ребёнка.
     """
-    with transaction.atomic():
-        rel, created = Relationship.objects.get_or_create(
-            from_person=new_parent,
-            to_person=child,
-            relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
-            defaults={"created_by": user},
+    try:
+        with transaction.atomic():
+            rel, created = Relationship.objects.get_or_create(
+                from_person=new_parent,
+                to_person=child,
+                relationship_type=RelationshipTypeEnum.BIOLOGICAL_PARENT,
+                defaults={"created_by": user},
+            )
+            if created:
+                _log_relationship(tree, user, rel, "CREATE", new_parent, child, request)
+    except ValidationError as e:
+        return PersonLinkResult(
+            success=False,
+            message="Не удалось создать связь.",
+            errors=_flatten_validation_error(e),
         )
-        if created:
-            _log_relationship(tree, user, rel, "CREATE", new_parent, child, request)
 
     return PersonLinkResult(
         success=True,

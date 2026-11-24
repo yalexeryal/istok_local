@@ -191,7 +191,12 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
                 user=self.request.user,
                 request=self.request,
             )
-            messages.success(self.request, result.message)
+            if result.success:
+                messages.success(self.request, result.message)
+            else:
+                errors = result.errors or [result.message]
+                for err in errors:
+                    messages.error(self.request, err)
 
         elif self.spouse_of:
             result = create_spouse_relationship(
@@ -203,7 +208,12 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
                 user=self.request.user,
                 request=self.request,
             )
-            messages.success(self.request, result.message)
+            if result.success:
+                messages.success(self.request, result.message)
+            else:
+                errors = result.errors or [result.message]
+                for err in errors:
+                    messages.error(self.request, err)
 
         elif self.parent1 and self.relation in ("father", "mother"):
             result = create_parent_relationship(
@@ -214,7 +224,12 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
                 user=self.request.user,
                 request=self.request,
             )
-            messages.success(self.request, result.message)
+            if result.success:
+                messages.success(self.request, result.message)
+            else:
+                errors = result.errors or [result.message]
+                for err in errors:
+                    messages.error(self.request, err)
 
         elif self.child:
             result = create_parent_for_child_relationship(
@@ -224,7 +239,12 @@ class PersonCreateView(LoginRequiredMixin, CreateView):
                 user=self.request.user,
                 request=self.request,
             )
-            messages.success(self.request, result.message)
+            if result.success:
+                messages.success(self.request, result.message)
+            else:
+                errors = result.errors or [result.message]
+                for err in errors:
+                    messages.error(self.request, err)
 
         else:
             messages.success(self.request, f'Персона "{person.full_name_display}" успешно создана.')
@@ -455,7 +475,12 @@ class LinkRelativeView(LoginRequiredMixin, View):
                 user=request.user,
                 request=request,
             )
-            messages.success(request, result.message)
+            if result.success:
+                messages.success(request, result.message)
+            else:
+                errors = result.errors or [result.message]
+                for err in errors:
+                    messages.error(request, err)
 
         elif self.relation in ("father", "mother"):
             result = create_parent_relationship(
@@ -466,7 +491,12 @@ class LinkRelativeView(LoginRequiredMixin, View):
                 user=request.user,
                 request=request,
             )
-            messages.success(request, result.message)
+            if result.success:
+                messages.success(request, result.message)
+            else:
+                errors = result.errors or [result.message]
+                for err in errors:
+                    messages.error(request, err)
 
         elif self.relation == "spouse":
             result = create_spouse_relationship(
@@ -476,7 +506,12 @@ class LinkRelativeView(LoginRequiredMixin, View):
                 user=request.user,
                 request=request,
             )
-            messages.success(request, result.message)
+            if result.success:
+                messages.success(request, result.message)
+            else:
+                errors = result.errors or [result.message]
+                for err in errors:
+                    messages.error(request, err)
 
         return redirect("genealogy:person_detail", pk=self.parent1.pk)
 
