@@ -187,8 +187,9 @@ class ExportService:
             collaborators_data = [self._collaborator_to_dict(c) for c in collaborators]
             zip_file.writestr("collaborators.json", json.dumps(collaborators_data, indent=2, ensure_ascii=False))
 
-            # Media files
+            # Media files (основное фото и галерея)
             for person in persons:
+                # Основное фото
                 if person.photo:
                     try:
                         photo_path = Path(person.photo.path)
@@ -196,7 +197,16 @@ class ExportService:
                             with open(photo_path, "rb") as f:
                                 zip_file.writestr(f"media/photos/{person.photo.name}", f.read())
                     except (ValueError, NotImplementedError):
-                        # Фото нет или оно не на диске
+                        pass
+
+                # Галерея
+                for p_photo in person.photos.all():
+                    try:
+                        photo_path = Path(p_photo.image.path)
+                        if photo_path.exists():
+                            with open(photo_path, "rb") as f:
+                                zip_file.writestr(f"media/person_photos/{p_photo.image.name}", f.read())
+                    except (ValueError, NotImplementedError):
                         pass
 
         return buffer.getvalue(), person_count
@@ -271,16 +281,30 @@ class ExportService:
 
             # Media files (с учётом приватности)
             for person in relatives:
-                if person.photo and not self._should_hide_photos(
+                should_hide = self._should_hide_photos(
                     person, privacy_settings, degrees.get(person.pk, float("inf")), privacy_overrides
-                ):
-                    try:
-                        photo_path = Path(person.photo.path)
-                        if photo_path.exists():
-                            with open(photo_path, "rb") as f:
-                                zip_file.writestr(f"media/photos/{person.photo.name}", f.read())
-                    except (ValueError, NotImplementedError):
-                        pass
+                )
+
+                if not should_hide:
+                    # Основное фото
+                    if person.photo:
+                        try:
+                            photo_path = Path(person.photo.path)
+                            if photo_path.exists():
+                                with open(photo_path, "rb") as f:
+                                    zip_file.writestr(f"media/photos/{person.photo.name}", f.read())
+                        except (ValueError, NotImplementedError):
+                            pass
+
+                    # Галерея
+                    for p_photo in person.photos.all():
+                        try:
+                            photo_path = Path(p_photo.image.path)
+                            if photo_path.exists():
+                                with open(photo_path, "rb") as f:
+                                    zip_file.writestr(f"media/person_photos/{p_photo.image.name}", f.read())
+                        except (ValueError, NotImplementedError):
+                            pass
 
         return buffer.getvalue(), person_count
 
@@ -403,6 +427,17 @@ class ExportService:
 
     def _person_to_dict(self, person: Person) -> dict:
         """Конвертирует персону в словарь для экспорта."""
+        # Собираем данные галереи
+        gallery_data = []
+        for p_photo in person.photos.all():
+            gallery_data.append(
+                {
+                    "filename": Path(p_photo.image.name).name,
+                    "caption": p_photo.caption,
+                    "is_primary": p_photo.is_primary,
+                }
+            )
+
         return {
             "id": person.pk,
             "tree_id": person.tree_id,
@@ -420,6 +455,7 @@ class ExportService:
             "burial_place": person.burial_place,
             "culture": person.culture,
             "photo": person.photo.name if person.photo else None,
+            "gallery": gallery_data,  # <--- ДОБАВИТЬ ЭТУ СТРОКУ
             "notes": person.notes,
             "status": person.status,
         }
@@ -446,9 +482,9 @@ class ExportService:
 
         # Применяем настройки приватности
         if privacy_settings:
-            if privacy_settings.hide_birth_date:
-                data["birth_date"] = None
-                data["is_birth_date_approx"] = False
+            if privacy_settings.hide_photos and degree > privacy_settings.full_data_min_degree:
+                data["photo"] = None
+                data["gallery"] = []
             elif degree > privacy_settings.full_data_min_degree:
                 # Для дальних родственников — только год
                 if data["birth_date"]:

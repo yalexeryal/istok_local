@@ -22,6 +22,7 @@ from genealogy.models import (
     ImportTask,
     LifeEvent,
     Person,
+    PersonPhoto,
     Relationship,
     Tree,
     TreeCollaborator,
@@ -398,6 +399,7 @@ class ImportService:
                 relationship_count = self._import_relationships(zip_file, tree, person_id_mapping)
                 self._import_life_events(zip_file, person_id_mapping)
                 self._import_media(zip_file, person_id_mapping)
+                self._import_person_photos(zip_file, person_id_mapping)
 
             person_count = len(person_id_mapping)
             return person_count, relationship_count
@@ -667,6 +669,68 @@ class ImportService:
                 count += 1
             except Exception:
                 continue
+
+        return count
+
+    def _import_person_photos(self, zip_file: zipfile.ZipFile, id_mapping: dict[int, int]) -> int:
+        """
+        🔒 P2: Импортирует фотографии из галереи PersonPhoto.
+        """
+        count = 0
+        try:
+            persons_data = json.loads(zip_file.read("persons.json"))
+        except (json.JSONDecodeError, KeyError):
+            persons_data = []
+
+        # Индекс файлов в архиве для быстрого поиска по имени файла
+        media_files = [name for name in zip_file.namelist() if name.startswith("media/person_photos/")]
+        archive_photo_names = {Path(name).name: name for name in media_files}
+
+        for person_data in persons_data:
+            old_id = person_data.get("id")
+            if old_id not in id_mapping:
+                continue
+
+            new_person_id = id_mapping[old_id]
+            try:
+                person = Person.objects.get(pk=new_person_id)
+            except Person.DoesNotExist:
+                continue
+
+            gallery_data = person_data.get("gallery", [])
+            for photo_info in gallery_data:
+                filename = photo_info.get("filename")
+                if not filename:
+                    continue
+
+                archive_path = archive_photo_names.get(filename)
+                if not archive_path:
+                    continue
+
+                if not self._is_safe_image(filename):
+                    continue
+
+                try:
+                    content = zip_file.read(archive_path)
+
+                    # Создаем объект PersonPhoto
+                    person_photo = PersonPhoto.objects.create(
+                        person=person,
+                        caption=photo_info.get("caption", ""),
+                        is_primary=photo_info.get("is_primary", False),
+                    )
+
+                    # Сохраняем файл изображения
+                    person_photo.image.save(filename, ContentFile(content), save=True)
+
+                    # Если это главное фото, обновляем также поле photo у Person
+                    if photo_info.get("is_primary"):
+                        person.photo = person_photo.image
+                        person.save(update_fields=["photo"])
+
+                    count += 1
+                except Exception:
+                    continue
 
         return count
 
