@@ -112,3 +112,11 @@ class Relationship(models.Model):
                     parent_rels = Relationship.objects.filter(to_person=current, relationship_type__in=parent_types)
                     for rel in parent_rels:
                         queue.append(rel.from_person)
+
+    def save(self, *args, **kwargs):
+        """
+        🔒 Гарантирует, что валидация (clean) вызывается при любом способе сохранения,
+        включая Relationship.objects.get_or_create() в сервисном слое.
+        """
+        self.full_clean()  # Вызывает clean() и проверку уникальности
+        super().save(*args, **kwargs)
