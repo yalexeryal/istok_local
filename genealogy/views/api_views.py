@@ -244,9 +244,10 @@ class UpcomingEventsAPI(LoginRequiredMixin, View):
                 )
 
         # 2. Годовщины свадеб (только юбилеи: 1 год или кратно 5)
+        # 🔒 ОПТИМИЗАЦИЯ: select_related устраняет N+1 запрос при обращении к from_person и to_person
         spouse_rels = Relationship.objects.filter(
             from_person__tree=tree, relationship_type=RelationshipTypeEnum.SPOUSE, start_date__isnull=False
-        )
+        ).select_related("from_person", "to_person")
         for rel in spouse_rels:
             years_married = today.year - rel.start_date.year
             if years_married == 1 or years_married % 5 == 0:

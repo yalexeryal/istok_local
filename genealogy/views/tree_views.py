@@ -13,7 +13,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
@@ -27,6 +27,7 @@ from xhtml2pdf import pisa
 from genealogy.models import (
     CollaboratorRoleEnum,
     Person,
+    PersonPhoto,
     Relationship,
     Tree,
     TreeCollaborator,
@@ -47,20 +48,29 @@ class TreeListView(LoginRequiredMixin, ListView):
         if user.is_superuser:
             return Tree.objects.annotate(persons_count=Count("persons", distinct=True)).order_by("-updated_at")
 
+        # 🔒 ОПТИМИЗАЦИЯ: Prefetch загружает только коллабораторов текущего пользователя, избегая N+1
         return (
             Tree.objects.filter(Q(collaborators__user=user) | Q(is_public=True))
             .distinct()
             .annotate(persons_count=Count("persons", distinct=True))
+            .prefetch_related(
+                Prefetch(
+                    "collaborators",
+                    queryset=TreeCollaborator.objects.filter(user=user),
+                    to_attr="current_user_collaborator",
+                )
+            )
             .order_by("-updated_at")
         )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        user = self.request.user
 
         trees_with_roles = []
         for tree in context["trees"]:
-            collaborator = tree.collaborators.filter(user=user).first()
+            collaborator_list = getattr(tree, "current_user_collaborator", [])
+            collaborator = collaborator_list[0] if collaborator_list else None
+
             if collaborator:
                 role = collaborator.get_role_display()
             elif tree.is_public:
@@ -160,7 +170,7 @@ def tree_data_api(request, pk):
     if not tree.user_can_view(request.user):
         return JsonResponse({"error": "Access denied"}, status=403)
 
-    persons = tree.persons.all()
+    persons = tree.persons.prefetch_related("relationships_from").all()
 
     nodes = [
         {
@@ -620,8 +630,18 @@ class TreePDFExportView(LoginRequiredMixin, View):
             person_ids = set(tree.persons.values_list("pk", flat=True))
 
         # Сортируем по дате рождения для естественного поколенческого порядка
-        persons = Person.objects.filter(pk__in=person_ids).select_related("tree").order_by("birth_date")
-
+        persons = (
+            Person.objects.filter(pk__in=person_ids)
+            .select_related("tree")
+            .prefetch_related(
+                Prefetch(
+                    "photos",
+                    queryset=PersonPhoto.objects.order_by("-is_primary", "-created_at"),
+                    to_attr="prefetched_photos",
+                )
+            )
+            .order_by("birth_date")
+        )
         # 2. Регистрация шрифта (как в PersonPDFView)
 
         font_path = os.path.join(settings.BASE_DIR, "genealogy", "fonts", "arial.ttf")
@@ -639,17 +659,18 @@ class TreePDFExportView(LoginRequiredMixin, View):
         except Exception:
             pass
 
-        # 3. Подготовка данных с фото для шаблона
-        persons_data = []
-        for p in persons:
-            primary_photo = p.photos.filter(is_primary=True).first() or p.photos.first()
-            photo_url = None
-            if primary_photo and primary_photo.image:
-                photo_path = os.path.join(settings.MEDIA_ROOT, primary_photo.image.name)
-                if os.path.exists(photo_path):
-                    photo_url = "file:///" + photo_path.replace("\\", "/")
+            # 3. Подготовка данных с фото для шаблона
+            persons_data = []
+            for p in persons:
+                # 🔒 ОПТИМИЗАЦИЯ: берем фото из предварительно загруженного списка, без запроса к БД
+                primary_photo = p.prefetched_photos[0] if p.prefetched_photos else None
+                photo_url = None
+                if primary_photo and primary_photo.image:
+                    photo_path = os.path.join(settings.MEDIA_ROOT, primary_photo.image.name)
+                    if os.path.exists(photo_path):
+                        photo_url = "file:///" + photo_path.replace("\\", "/")
 
-            persons_data.append({"person": p, "photo_url": photo_url})
+                persons_data.append({"person": p, "photo_url": photo_url})
 
         context = {
             "tree": tree,
