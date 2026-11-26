@@ -14,12 +14,13 @@
     <!-- Подключаем кастомный CSS -->
     <link rel="stylesheet" href="{% static 'genealogy/css/main.css' %}">
 
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
-    <script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
-    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+    <!-- 🔒 ЛОКАЛЬНЫЕ ЗАВИСИМОСТИ (вместо CDN) -->
+    <script src="{% static 'genealogy/vendor/js/tailwind.js' %}"></script>
+    <script src="{% static 'genealogy/vendor/js/htmx.min.js' %}"></script>
+    <script defer src="{% static 'genealogy/vendor/js/alpine.min.js' %}"></script>
+    <script src="{% static 'genealogy/vendor/js/cytoscape.min.js' %}"></script>
+    <link href="{% static 'genealogy/vendor/css/tom-select.css' %}" rel="stylesheet">
+    <script src="{% static 'genealogy/vendor/js/tom-select.complete.min.js' %}"></script>
 
     <style>
         .htmx-indicator {
@@ -62,14 +63,15 @@
                 <a href="{% url 'genealogy:tree_list' %}"
                    class="text-gray-700 hover:text-gray-900 font-medium transition">
                     Мои деревья
+                </a>
                 <a href="{% url 'genealogy:tree_import' %}"
-   class="text-gray-700 hover:text-gray-900 font-medium transition">
-    Импорт CSV
-</a>
-<a href="{% url 'genealogy:gedcom_import' %}"
-   class="text-gray-700 hover:text-gray-900 font-medium transition">
-    Импорт GEDCOM
-</a>
+                   class="text-gray-700 hover:text-gray-900 font-medium transition">
+                    Импорт CSV
+                </a>
+                <a href="{% url 'genealogy:gedcom_import' %}"
+                   class="text-gray-700 hover:text-gray-900 font-medium transition">
+                    Импорт GEDCOM
+                </a>
 
                 {% if user.is_staff %}
                 <a href="{% url 'admin:index' %}"
@@ -139,14 +141,15 @@
             <a href="{% url 'genealogy:tree_list' %}"
                class="block py-2 text-gray-700 hover:text-gray-900 font-medium">
                 Мои деревья
+            </a>
             <a href="{% url 'genealogy:tree_import' %}"
-   class="text-gray-700 hover:text-gray-900 font-medium transition">
-    Импорт CSV
-</a>
-<a href="{% url 'genealogy:gedcom_import' %}"
-   class="text-gray-700 hover:text-gray-900 font-medium transition">
-    Импорт GEDCOM
-</a>
+               class="block py-2 text-gray-700 hover:text-gray-900 font-medium">
+                Импорт CSV
+            </a>
+            <a href="{% url 'genealogy:gedcom_import' %}"
+               class="block py-2 text-gray-700 hover:text-gray-900 font-medium">
+                Импорт GEDCOM
+            </a>
 
             {% if user.is_staff %}
             <a href="{% url 'admin:index' %}"
