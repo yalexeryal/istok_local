@@ -244,16 +244,18 @@ class UpcomingEventsAPI(LoginRequiredMixin, View):
                 )
 
         # 2. Годовщины свадеб (только юбилеи: 1 год или кратно 5)
-        # 🔒 ОПТИМИЗАЦИЯ: select_related устраняет N+1 запрос при обращении к from_person и to_person
         spouse_rels = Relationship.objects.filter(
             from_person__tree=tree, relationship_type=RelationshipTypeEnum.SPOUSE, start_date__isnull=False
         ).select_related("from_person", "to_person")
+
         for rel in spouse_rels:
-            years_married = today.year - rel.start_date.year
-            if years_married == 1 or years_married % 5 == 0:
-                next_date = self._get_next_anniversary(today, rel.start_date)
-                days_until = (next_date - today).days
-                if 0 <= days_until <= 10:
+            next_date = self._get_next_anniversary(today, rel.start_date)
+            days_until = (next_date - today).days
+
+            if 0 <= days_until <= 10:
+                # 🔒 ИСПРАВЛЕНИЕ: считаем годы на момент НАСТУПЛЕНИЯ годовщины, а не сегодня
+                years_married = next_date.year - rel.start_date.year
+                if years_married == 1 or years_married % 5 == 0:
                     events.append(
                         {
                             "type": "wedding",
@@ -268,11 +270,13 @@ class UpcomingEventsAPI(LoginRequiredMixin, View):
 
         # 3. Годовщины смерти (только юбилеи: 1 год или кратно 5)
         for person in tree.persons.filter(death_date__isnull=False):
-            years_since = today.year - person.death_date.year
-            if years_since == 1 or years_since % 5 == 0:
-                next_date = self._get_next_anniversary(today, person.death_date)
-                days_until = (next_date - today).days
-                if 0 <= days_until <= 10:
+            next_date = self._get_next_anniversary(today, person.death_date)
+            days_until = (next_date - today).days
+
+            if 0 <= days_until <= 10:
+                # 🔒 ИСПРАВЛЕНИЕ: считаем годы на момент НАСТУПЛЕНИЯ годовщины
+                years_since = next_date.year - person.death_date.year
+                if years_since == 1 or years_since % 5 == 0:
                     events.append(
                         {
                             "type": "death",
@@ -291,18 +295,32 @@ class UpcomingEventsAPI(LoginRequiredMixin, View):
         return JsonResponse({"events": events[:5]})
 
     def _get_next_anniversary(self, today, original_date):
-        """Возвращает следующую дату годовщины (в этом или следующем году)."""
-        try:
-            next_date = original_date.replace(year=today.year)
-            if next_date < today:
-                next_date = original_date.replace(year=today.year + 1)
-            return next_date
-        except ValueError:
-            # Обработка 29 февраля для невисокосных годов
-            next_date = original_date.replace(year=today.year, day=28)
-            if next_date < today:
-                next_date = original_date.replace(year=today.year + 1, day=28)
-            return next_date
+        """
+        Возвращает следующую дату годовщины (в этом или будущем году).
+        🔒 ИСПРАВЛЕНИЕ: Корректно обрабатывает 29 февраля, находя следующий високосный год,
+        если в текущем или следующем году этой даты не существует.
+        """
+        if original_date.month == 2 and original_date.day == 29:
+            # Для 29 февраля ищем ближайший високосный год, дата в котором >= today
+            year = today.year
+            while True:
+                try:
+                    candidate = original_date.replace(year=year)
+                    if candidate >= today:
+                        return candidate
+                except ValueError:
+                    pass  # Этот год не високосный, переходим к следующему
+                year += 1
+        else:
+            # Для обычных дат
+            try:
+                next_date = original_date.replace(year=today.year)
+                if next_date >= today:
+                    return next_date
+            except ValueError:
+                pass  # На всякий случай
+
+            return original_date.replace(year=today.year + 1)
 
 
 class TreeStatisticsAPI(LoginRequiredMixin, View):
