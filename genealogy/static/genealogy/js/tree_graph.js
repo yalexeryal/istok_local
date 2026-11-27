@@ -212,25 +212,6 @@ function renderGraph() {
     const fontSize = isMobile ? '9px' : '11px';
     const textMaxWidth = isMobile ? '110px' : '150px';
 
-    let layoutOptions = (currentLayout === 'hierarchy' && dagreAvailable) ? {
-        name: 'dagre',
-        rankDir: 'TB',
-        nodeSep: 30,
-        rankSep: 60,
-        edgeSep: 15,
-        spacingFactor: 1.1,
-        fit: false,
-        padding: 30
-    } : {
-        name: 'cose',
-        animate: false,
-        nodeDimensionsIncludeLabels: true,
-        idealEdgeLength: 80,
-        nodeOverlap: 15,
-        padding: 20,
-        fit: false
-    };
-
     cy = cytoscape({
         container: cyContainer,
         elements: prepareElements(currentData),
@@ -335,12 +316,53 @@ function renderGraph() {
 
     window.cy = cy;
 
-    const layout = cy.layout(layoutOptions);
-    layout.on('layoutstop', function () {
-        cy.fit(null, 50);
-        if (loadingEl) loadingEl.style.display = 'none';
-    });
-    layout.run();
+    if (currentLayout === 'hierarchy' && dagreAvailable) {
+        // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: скрываем не-иерархические рёбра от dagre,
+        // чтобы поколения считались СТРОГО по цепочкам Родитель → Ребёнок.
+        const NON_HIER_TYPES = ['spouse', 'fiance', 'ex_spouse'];
+        const hiddenEdges = cy.edges().filter(e => NON_HIER_TYPES.includes(e.data('type')));
+        const hiddenData = hiddenEdges.map(e => e.json());
+        hiddenEdges.remove();
+
+        const layoutOptions = {
+            name: 'dagre',
+            rankDir: 'TB',
+            ranker: 'longest-path',
+            nodeSep: 40,
+            rankSep: 80,
+            edgeSep: 15,
+            spacingFactor: 1.2,
+            fit: false,
+            padding: 50
+        };
+
+        const layout = cy.layout(layoutOptions);
+        layout.on('layoutstop', function () {
+            // 🔥 Возвращаем связи супругов ПОСЛЕ расчёта поколений.
+            // Их позиции уже зафиксированы dagre, рёбра просто дорисуются.
+            hiddenData.forEach(e => cy.add(e));
+            cy.fit(null, 50);
+            if (loadingEl) loadingEl.style.display = 'none';
+        });
+        layout.run();
+    } else {
+        // Свободный граф — все рёбра на месте, cose сам всё сбалансирует.
+        const layoutOptions = {
+            name: 'cose',
+            animate: false,
+            nodeDimensionsIncludeLabels: true,
+            idealEdgeLength: 80,
+            nodeOverlap: 15,
+            padding: 20,
+            fit: false
+        };
+        const layout = cy.layout(layoutOptions);
+        layout.on('layoutstop', function () {
+            cy.fit(null, 50);
+            if (loadingEl) loadingEl.style.display = 'none';
+        });
+        layout.run();
+    }
 
     cy.on('tap', 'node', function (evt) {
         showPersonSidebar(evt.target.id(), evt.target.data());
