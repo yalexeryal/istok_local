@@ -294,6 +294,10 @@
     const PERSONS_DATA = {{ persons_json | safe }};
 </script>
 
+<!-- 🔒 ЛОКАЛЬНЫЕ ЗАВИСИМОСТИ ДЛЯ ГРАФА (dagre для иерархического layout) -->
+<script src="{% static 'genealogy/vendor/js/dagre.min.js' %}"></script>
+<script src="{% static 'genealogy/vendor/js/cytoscape-dagre.min.js' %}"></script>
+
 <!-- Наш вынесенный скрипт графа -->
 <script src="{% static 'genealogy/js/tree_graph.js' %}"></script>
 {% endblock %}
